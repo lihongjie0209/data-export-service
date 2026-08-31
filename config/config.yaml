@@ -137,6 +137,9 @@ event_bus:
   dispatch_batch_size: 100
   dispatch_lease: 30s
   dispatch_retry_delay: 2s
+  published_retention: 168h
+  cleanup_interval: 1h
+  cleanup_batch_size: 1000
 
 export:
   batch_size: 500

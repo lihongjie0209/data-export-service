@@ -1,0 +1,1 @@
+DROP INDEX export_outbox_retention_idx ON export_outbox_events;
