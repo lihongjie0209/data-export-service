@@ -122,6 +122,54 @@ type DownloadExportRequest struct {
 	TTLSeconds int32  `json:"ttl_seconds"`
 }
 
+type ExportJobBody struct {
+	ID              string          `json:"id"`
+	TenantID        string          `json:"tenant_id"`
+	DatasetCode     string          `json:"dataset_code"`
+	ProviderService string          `json:"provider_service"`
+	Format          string          `json:"format"`
+	Filename        string          `json:"filename"`
+	Query           json.RawMessage `json:"query" swaggertype:"object"`
+	SelectedColumns []string        `json:"selected_columns"`
+	Status          string          `json:"status"`
+	RowsExported    int64           `json:"rows_exported"`
+	BytesWritten    int64           `json:"bytes_written"`
+	ProgressPercent int32           `json:"progress_percent"`
+	ObjectKey       string          `json:"object_key"`
+	ContentType     string          `json:"content_type"`
+	Checksum        string          `json:"checksum"`
+	ErrorCode       string          `json:"error_code"`
+	ErrorMessage    string          `json:"error_message"`
+	StartedAt       *time.Time      `json:"started_at,omitempty"`
+	CompletedAt     *time.Time      `json:"completed_at,omitempty"`
+	ExpiresAt       *time.Time      `json:"expires_at,omitempty"`
+	Version         int64           `json:"version"`
+	CreatedAt       time.Time       `json:"created_at"`
+	UpdatedAt       time.Time       `json:"updated_at"`
+	CreatedBy       string          `json:"created_by"`
+	UpdatedBy       string          `json:"updated_by"`
+}
+
+type ExportMutationBody struct {
+	Job       ExportJobBody `json:"job"`
+	Duplicate bool          `json:"duplicate"`
+}
+
+type ExportPageBody struct {
+	Items    []ExportJobBody `json:"items"`
+	Total    int64           `json:"total"`
+	Page     int32           `json:"page"`
+	PageSize int32           `json:"page_size"`
+}
+
+type ExportDownloadBody struct {
+	URL         string    `json:"url"`
+	ExpiresAt   time.Time `json:"expires_at"`
+	Filename    string    `json:"filename"`
+	ContentType string    `json:"content_type"`
+	Checksum    string    `json:"checksum"`
+}
+
 func (h *Handler) bind(c *gin.Context, target any) bool {
 	if err := c.ShouldBindJSON(target); err != nil {
 		Fail(c, h.logger, apperror.Invalid("invalid JSON request", err))
@@ -138,7 +186,7 @@ func (h *Handler) bind(c *gin.Context, target any) bool {
 // @Security Bearer
 // @Security PSK
 // @Param request body CreateExportRequest true "Export definition"
-// @Success 200 {object} Response
+// @Success 200 {object} Response{body=ExportMutationBody}
 // @Router /api/v1/exports/create [post]
 func (h *Handler) CreateExport(c *gin.Context) {
 	var r CreateExportRequest
@@ -146,12 +194,12 @@ func (h *Handler) CreateExport(c *gin.Context) {
 		return
 	}
 	columns, _ := json.Marshal(r.SelectedColumns)
-	value, duplicate, err := h.exports.Create(c.Request.Context(), platformexport.CreateInput{TenantID: r.TenantID, DatasetCode: r.DatasetCode, ProviderService: r.ProviderService, Format: r.Format, Filename: r.Filename, QueryJSON: string(r.Query), SelectedColumnsJSON: string(columns), IdempotencyKey: r.IdempotencyKey})
+	value, duplicate, err := h.exports.Create(c.Request.Context(), platformexport.CreateInput{TenantID: r.TenantID, DatasetCode: r.DatasetCode, ProviderService: r.ProviderService, Format: r.Format, Filename: r.Filename, QueryJSON: string(rawObject(r.Query)), SelectedColumnsJSON: string(columns), IdempotencyKey: r.IdempotencyKey})
 	if err != nil {
 		Fail(c, h.logger, err)
 		return
 	}
-	OK(c, gin.H{"job": value, "duplicate": duplicate})
+	OK(c, gin.H{"job": exportJobBody(value), "duplicate": duplicate})
 }
 
 // GetExport godoc
@@ -162,7 +210,7 @@ func (h *Handler) CreateExport(c *gin.Context) {
 // @Security Bearer
 // @Security PSK
 // @Param request body GetExportRequest true "Job selector"
-// @Success 200 {object} Response
+// @Success 200 {object} Response{body=ExportJobBody}
 // @Router /api/v1/exports/get [post]
 func (h *Handler) GetExport(c *gin.Context) {
 	var r GetExportRequest
@@ -174,7 +222,7 @@ func (h *Handler) GetExport(c *gin.Context) {
 		Fail(c, h.logger, err)
 		return
 	}
-	OK(c, value)
+	OK(c, exportJobBody(value))
 }
 
 // ListExports godoc
@@ -185,7 +233,7 @@ func (h *Handler) GetExport(c *gin.Context) {
 // @Security Bearer
 // @Security PSK
 // @Param request body ListExportsRequest true "Filters and pagination"
-// @Success 200 {object} Response
+// @Success 200 {object} Response{body=ExportPageBody}
 // @Router /api/v1/exports/list [post]
 func (h *Handler) ListExports(c *gin.Context) {
 	var r ListExportsRequest
@@ -207,7 +255,11 @@ func (h *Handler) ListExports(c *gin.Context) {
 	if pageSize > 200 {
 		pageSize = 200
 	}
-	OK(c, gin.H{"items": value.Items, "total": value.Total, "page": page, "page_size": pageSize})
+	items := make([]ExportJobBody, 0, len(value.Items))
+	for _, item := range value.Items {
+		items = append(items, exportJobBody(item))
+	}
+	OK(c, gin.H{"items": items, "total": value.Total, "page": page, "page_size": pageSize})
 }
 
 // CancelExport godoc
@@ -218,7 +270,7 @@ func (h *Handler) ListExports(c *gin.Context) {
 // @Security Bearer
 // @Security PSK
 // @Param request body VersionedExportRequest true "Job and current version"
-// @Success 200 {object} Response
+// @Success 200 {object} Response{body=ExportJobBody}
 // @Router /api/v1/exports/cancel [post]
 func (h *Handler) CancelExport(c *gin.Context) {
 	var r VersionedExportRequest
@@ -230,7 +282,7 @@ func (h *Handler) CancelExport(c *gin.Context) {
 		Fail(c, h.logger, err)
 		return
 	}
-	OK(c, value)
+	OK(c, exportJobBody(value))
 }
 
 // RetryExport godoc
@@ -241,7 +293,7 @@ func (h *Handler) CancelExport(c *gin.Context) {
 // @Security Bearer
 // @Security PSK
 // @Param request body RetryExportRequest true "Retry request"
-// @Success 200 {object} Response
+// @Success 200 {object} Response{body=ExportMutationBody}
 // @Router /api/v1/exports/retry [post]
 func (h *Handler) RetryExport(c *gin.Context) {
 	var r RetryExportRequest
@@ -253,7 +305,34 @@ func (h *Handler) RetryExport(c *gin.Context) {
 		Fail(c, h.logger, err)
 		return
 	}
-	OK(c, gin.H{"job": value, "duplicate": duplicate})
+	OK(c, gin.H{"job": exportJobBody(value), "duplicate": duplicate})
+}
+
+func exportJobBody(value platformexport.Job) ExportJobBody {
+	columns := []string{}
+	_ = json.Unmarshal([]byte(value.SelectedColumnsJSON), &columns)
+	return ExportJobBody{
+		ID: value.ID, TenantID: value.TenantID, DatasetCode: value.DatasetCode, ProviderService: value.ProviderService,
+		Format: value.Format, Filename: value.Filename, Query: rawObject(json.RawMessage(value.QueryJSON)),
+		SelectedColumns: columns, Status: value.Status, RowsExported: value.RowsExported, BytesWritten: value.BytesWritten,
+		ProgressPercent: value.ProgressPercent, ObjectKey: value.ObjectKey, ContentType: value.ContentType, Checksum: value.Checksum,
+		ErrorCode: value.ErrorCode, ErrorMessage: value.ErrorMessage, StartedAt: value.StartedAt, CompletedAt: value.CompletedAt,
+		ExpiresAt: value.ExpiresAt, Version: value.Version, CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt,
+		CreatedBy: value.CreatedBy, UpdatedBy: value.UpdatedBy,
+	}
+}
+
+func rawObject(value json.RawMessage) json.RawMessage {
+	if len(value) > 0 && json.Valid(value) {
+		if value[0] == '"' {
+			var legacy string
+			if json.Unmarshal(value, &legacy) == nil && json.Valid([]byte(legacy)) {
+				return json.RawMessage(legacy)
+			}
+		}
+		return value
+	}
+	return json.RawMessage(`{}`)
 }
 
 // DownloadExport godoc
@@ -264,7 +343,7 @@ func (h *Handler) RetryExport(c *gin.Context) {
 // @Security Bearer
 // @Security PSK
 // @Param request body DownloadExportRequest true "Download request"
-// @Success 200 {object} Response
+// @Success 200 {object} Response{body=ExportDownloadBody}
 // @Router /api/v1/exports/download [post]
 func (h *Handler) DownloadExport(c *gin.Context) {
 	var r DownloadExportRequest

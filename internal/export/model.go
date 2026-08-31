@@ -22,8 +22,8 @@ type Job struct {
 	ProviderService     string     `db:"provider_service" json:"provider_service"`
 	Format              string     `db:"format" json:"format"`
 	Filename            string     `db:"filename" json:"filename"`
-	QueryJSON           string     `db:"query_json" json:"query_json"`
-	SelectedColumnsJSON string     `db:"selected_columns_json" json:"selected_columns_json"`
+	QueryJSON           string     `db:"query_json" json:"-"`
+	SelectedColumnsJSON string     `db:"selected_columns_json" json:"-"`
 	IdempotencyKey      string     `db:"idempotency_key" json:"-"`
 	Status              string     `db:"status" json:"status"`
 	RowsExported        int64      `db:"rows_exported" json:"rows_exported"`
