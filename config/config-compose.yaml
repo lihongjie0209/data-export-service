@@ -1,0 +1,26 @@
+app:
+  env: compose
+log:
+  level: debug
+  file: /app/logs/app.log
+swagger:
+  enabled: true
+database:
+  name: platform
+  schema: data_export
+grpc:
+  reflection_enabled: true
+cron:
+  enabled: true
+object_storage:
+  enabled: true
+  endpoint: minio:9000
+  access_key: minioadmin
+  secret_key: minioadmin
+  bucket: platform-exports
+service_registry:
+  enabled: false
+  allow_insecure: true
+provider_client:
+  allowed_dns_suffixes: [.platform.svc.cluster.local, .local]
+  allow_insecure: true

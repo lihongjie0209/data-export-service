@@ -1,0 +1,54 @@
+# Production deliberately fails fast until secrets, endpoints, and TLS files
+# are injected through APP_* variables or the platform secret manager.
+app:
+  env: production
+http:
+  address: 0.0.0.0:8080
+log:
+  level: info
+  format: json
+swagger:
+  enabled: false
+  require_auth: true
+grpc:
+  address: 0.0.0.0:9090
+  reflection_enabled: false
+  tls:
+    enabled: true
+    cert_file: ""
+    key_file: ""
+database:
+  enabled: true
+  name: platform
+  schema: data_export
+  dsn: ""
+redis:
+  enabled: true
+migration:
+  auto_up: true
+  create_schema: false
+  database_url: ""
+rate_limit:
+  enabled: true
+idempotency:
+  enabled: true
+observability:
+  metrics_enabled: true
+  tracing_enabled: false
+auth:
+  jwks_url: ""
+  issuer: ""
+  audience: data-export-service
+object_storage:
+  enabled: true
+  endpoint: ""
+  access_key: ""
+  secret_key: ""
+  bucket: platform-exports
+service_registry:
+  enabled: true
+  target: service-registry-service.platform.svc.cluster.local:9090
+  tls: {enabled: true, server_name: service-registry-service.platform.svc.cluster.local}
+provider_client:
+  allowed_dns_suffixes: [.platform.svc.cluster.local]
+  tls: {enabled: true}
