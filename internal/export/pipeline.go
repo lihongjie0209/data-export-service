@@ -31,6 +31,7 @@ type Provider interface {
 type Progress struct {
 	Rows, Bytes   int64
 	EstimatedRows int64
+	Checkpoint    bool
 }
 
 type PipelineResult struct {
@@ -96,11 +97,14 @@ func (p *Pipeline) Run(ctx context.Context, job Job, selected []string, onProgre
 				return err
 			}
 			rows += int64(len(batch.Rows))
-			if onProgress != nil && (rows-lastReported >= p.progressEvery || batch.Done) {
-				if err := onProgress(Progress{Rows: rows, Bytes: limited.written, EstimatedRows: batch.EstimatedTotalRows}); err != nil {
+			if onProgress != nil {
+				checkpoint := rows-lastReported >= p.progressEvery || batch.Done
+				if err := onProgress(Progress{Rows: rows, Bytes: limited.written, EstimatedRows: batch.EstimatedTotalRows, Checkpoint: checkpoint}); err != nil {
 					return err
 				}
-				lastReported = rows
+				if checkpoint {
+					lastReported = rows
+				}
 			}
 			return nil
 		})

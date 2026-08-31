@@ -5,6 +5,10 @@ import (
 	"errors"
 	"testing"
 	"time"
+
+	commonv1 "github.com/lihongjie0209/platform-protos/gen/go/platform/common/v1"
+	exportv1 "github.com/lihongjie0209/platform-protos/gen/go/platform/export/v1"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestWorkerCompletesClaimedJob(t *testing.T) {
@@ -29,6 +33,7 @@ func TestWorkerCompletesClaimedJob(t *testing.T) {
 	if len(repository.events) != 1 || repository.events[0].Subject != "platform.export.job.succeeded.v1" {
 		t.Fatalf("events=%+v", repository.events)
 	}
+	assertEventJobVersion(t, repository.events[0], repository.job.Version)
 }
 
 func TestWorkerPersistsFailureAndDeletesPartialObject(t *testing.T) {
@@ -90,9 +95,9 @@ func TestWorkerStopsAndKeepsCanceledStateWhenProgressUpdateLosesRunningState(t *
 	storage := &memoryStorage{}
 	provider := providerFunc(func(_ context.Context, _ string, _ StreamRequest, receive func(Batch) error) error {
 		repository.job.Status = StatusCanceled
-		return receive(Batch{Columns: []Column{{Key: "id", Title: "ID"}}, Rows: []map[string]any{{"id": "u1"}}, Done: true})
+		return receive(Batch{Columns: []Column{{Key: "id", Title: "ID"}}, Rows: []map[string]any{{"id": "u1"}}})
 	})
-	worker := NewWorker(repository, fakeTransaction{}, NewPipeline(provider, storage, 10, 100, 1024, 1), storage, time.Minute, time.Hour)
+	worker := NewWorker(repository, fakeTransaction{}, NewPipeline(provider, storage, 10, 100, 1024, 100), storage, time.Minute, time.Hour)
 	err := worker.Process(context.Background(), "tenant-1", "job-1")
 	if !errors.Is(err, ErrStaleVersion) {
 		t.Fatalf("error=%v", err)
@@ -108,5 +113,20 @@ func TestWorkerStopsAndKeepsCanceledStateWhenProgressUpdateLosesRunningState(t *
 	storage.mu.Unlock()
 	if !deleted {
 		t.Fatal("partial object was not deleted after cancellation")
+	}
+}
+
+func assertEventJobVersion(t *testing.T, event OutboxEvent, want int64) {
+	t.Helper()
+	var envelope commonv1.EventEnvelope
+	if err := proto.Unmarshal(event.Envelope, &envelope); err != nil {
+		t.Fatal(err)
+	}
+	var changed exportv1.ExportJobChangedEvent
+	if err := proto.Unmarshal(envelope.GetPayload(), &changed); err != nil {
+		t.Fatal(err)
+	}
+	if changed.GetJob().GetVersion() != want {
+		t.Fatalf("event job version=%d want=%d", changed.GetJob().GetVersion(), want)
 	}
 }

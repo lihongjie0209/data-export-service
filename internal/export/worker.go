@@ -36,11 +36,14 @@ func (w *Worker) Process(ctx context.Context, tenantID, id string) error {
 	runCtx, cancel := context.WithTimeout(ctx, w.timeout)
 	defer cancel()
 	result, err := w.pipeline.Run(runCtx, job, selected, func(progress Progress) error {
+		if !progress.Checkpoint {
+			return w.repository.EnsureRunning(runCtx, job.TenantID, job.ID)
+		}
 		percent := int32(0)
 		if progress.EstimatedRows > 0 {
 			percent = int32(min(int64(99), progress.Rows*100/progress.EstimatedRows))
 		}
-		return w.repository.Progress(runCtx, job.ID, progress.Rows, progress.Bytes, percent, w.now())
+		return w.repository.Progress(runCtx, job.TenantID, job.ID, progress.Rows, progress.Bytes, percent, w.now())
 	})
 	if err != nil {
 		return w.fail(ctx, job, errorCode(err), err)
@@ -57,11 +60,12 @@ func (w *Worker) Process(ctx context.Context, tenantID, id string) error {
 	job.UpdatedAt = completed
 	job.UpdatedBy = "data-export-worker"
 	return w.transactor.Within(ctx, nil, func(tx *sqlx.Tx) error {
-		if err := w.repository.Succeed(ctx, tx, job); err != nil {
+		persisted, err := w.repository.Succeed(ctx, tx, job)
+		if err != nil {
 			_ = w.storage.Delete(context.WithoutCancel(ctx), job.ObjectKey)
 			return err
 		}
-		event, err := jobChangedEvent(job, "succeeded", job.UpdatedBy, completed)
+		event, err := jobChangedEvent(persisted, "succeeded", persisted.UpdatedBy, completed)
 		if err != nil {
 			return err
 		}
@@ -79,10 +83,11 @@ func (w *Worker) fail(ctx context.Context, job Job, code string, cause error) er
 	job.UpdatedBy = "data-export-worker"
 	persistCtx := context.WithoutCancel(ctx)
 	persistErr := w.transactor.Within(persistCtx, nil, func(tx *sqlx.Tx) error {
-		if err := w.repository.Fail(persistCtx, tx, job); err != nil {
+		persisted, err := w.repository.Fail(persistCtx, tx, job)
+		if err != nil {
 			return err
 		}
-		event, err := jobChangedEvent(job, "failed", job.UpdatedBy, now)
+		event, err := jobChangedEvent(persisted, "failed", persisted.UpdatedBy, now)
 		if err != nil {
 			return err
 		}
@@ -114,10 +119,11 @@ func (w *Worker) CleanupExpired(ctx context.Context, limit int) (int, error) {
 		job.UpdatedAt = now
 		job.UpdatedBy = "data-export-cleaner"
 		err := w.transactor.Within(ctx, nil, func(tx *sqlx.Tx) error {
-			if err := w.repository.Expire(ctx, tx, job, now); err != nil {
+			persisted, err := w.repository.Expire(ctx, tx, job, now)
+			if err != nil {
 				return err
 			}
-			event, err := jobChangedEvent(job, "expired", job.UpdatedBy, now)
+			event, err := jobChangedEvent(persisted, "expired", persisted.UpdatedBy, now)
 			if err != nil {
 				return err
 			}

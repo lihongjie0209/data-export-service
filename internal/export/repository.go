@@ -23,11 +23,12 @@ type Repository interface {
 	Cancel(context.Context, sqlx.ExtContext, string, string, int64, string, time.Time) error
 	Retry(context.Context, sqlx.ExtContext, Job, int64) error
 	Claim(context.Context, string, string, time.Time) (Job, bool, error)
-	Progress(context.Context, string, int64, int64, int32, time.Time) error
-	Succeed(context.Context, sqlx.ExtContext, Job) error
-	Fail(context.Context, sqlx.ExtContext, Job) error
+	EnsureRunning(context.Context, string, string) error
+	Progress(context.Context, string, string, int64, int64, int32, time.Time) error
+	Succeed(context.Context, sqlx.ExtContext, Job) (Job, error)
+	Fail(context.Context, sqlx.ExtContext, Job) (Job, error)
 	ListExpired(context.Context, time.Time, int) ([]Job, error)
-	Expire(context.Context, sqlx.ExtContext, Job, time.Time) error
+	Expire(context.Context, sqlx.ExtContext, Job, time.Time) (Job, error)
 	AddOutbox(context.Context, sqlx.ExtContext, OutboxEvent) error
 }
 
@@ -103,26 +104,43 @@ func (r *SQLRepository) Claim(ctx context.Context, tenantID, id string, now time
 	value, err := r.Get(ctx, tenantID, id)
 	return value, true, err
 }
-func (r *SQLRepository) Progress(ctx context.Context, id string, rows, bytes int64, percent int32, now time.Time) error {
-	result, err := r.db.ExecContext(ctx, r.db.Rebind("UPDATE export_jobs SET rows_exported=?,bytes_written=?,progress_percent=?,version=version+1,updated_at=?,updated_by='data-export-worker' WHERE id=? AND status='running'"), rows, bytes, percent, now, id)
+func (r *SQLRepository) EnsureRunning(ctx context.Context, tenantID, id string) error {
+	var marker int
+	err := r.db.GetContext(ctx, &marker, r.db.Rebind("SELECT 1 FROM export_jobs WHERE tenant_id=? AND id=? AND status='running'"), tenantID, id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrStaleVersion
+	}
+	return err
+}
+func (r *SQLRepository) Progress(ctx context.Context, tenantID, id string, rows, bytes int64, percent int32, now time.Time) error {
+	result, err := r.db.ExecContext(ctx, r.db.Rebind("UPDATE export_jobs SET rows_exported=?,bytes_written=?,progress_percent=?,version=version+1,updated_at=?,updated_by='data-export-worker' WHERE tenant_id=? AND id=? AND status='running'"), rows, bytes, percent, now, tenantID, id)
 	return optimistic(result, err)
 }
-func (r *SQLRepository) Succeed(ctx context.Context, e sqlx.ExtContext, value Job) error {
+func (r *SQLRepository) Succeed(ctx context.Context, e sqlx.ExtContext, value Job) (Job, error) {
 	result, err := e.ExecContext(ctx, r.db.Rebind("UPDATE export_jobs SET status='succeeded',rows_exported=?,bytes_written=?,progress_percent=100,content_type=?,checksum=?,completed_at=?,expires_at=?,version=version+1,updated_at=?,updated_by=? WHERE tenant_id=? AND id=? AND status='running'"), value.RowsExported, value.BytesWritten, value.ContentType, value.Checksum, value.CompletedAt, value.ExpiresAt, value.UpdatedAt, value.UpdatedBy, value.TenantID, value.ID)
-	return optimistic(result, err)
+	if err := optimistic(result, err); err != nil {
+		return Job{}, err
+	}
+	return r.get(ctx, e, value.TenantID, value.ID)
 }
-func (r *SQLRepository) Fail(ctx context.Context, e sqlx.ExtContext, value Job) error {
+func (r *SQLRepository) Fail(ctx context.Context, e sqlx.ExtContext, value Job) (Job, error) {
 	result, err := e.ExecContext(ctx, r.db.Rebind("UPDATE export_jobs SET status='failed',error_code=?,error_message=?,completed_at=?,version=version+1,updated_at=?,updated_by=? WHERE tenant_id=? AND id=? AND status='running'"), value.ErrorCode, value.ErrorMessage, value.CompletedAt, value.UpdatedAt, value.UpdatedBy, value.TenantID, value.ID)
-	return optimistic(result, err)
+	if err := optimistic(result, err); err != nil {
+		return Job{}, err
+	}
+	return r.get(ctx, e, value.TenantID, value.ID)
 }
 func (r *SQLRepository) ListExpired(ctx context.Context, now time.Time, limit int) ([]Job, error) {
 	items := []Job{}
 	err := r.db.SelectContext(ctx, &items, r.db.Rebind("SELECT "+jobColumns+" FROM export_jobs WHERE status='succeeded' AND expires_at IS NOT NULL AND expires_at<=? ORDER BY expires_at,id LIMIT ?"), now, limit)
 	return items, err
 }
-func (r *SQLRepository) Expire(ctx context.Context, e sqlx.ExtContext, value Job, now time.Time) error {
+func (r *SQLRepository) Expire(ctx context.Context, e sqlx.ExtContext, value Job, now time.Time) (Job, error) {
 	result, err := e.ExecContext(ctx, r.db.Rebind("UPDATE export_jobs SET status='expired',version=version+1,updated_at=?,updated_by='data-export-cleaner' WHERE tenant_id=? AND id=? AND status='succeeded' AND expires_at IS NOT NULL AND expires_at<=?"), now, value.TenantID, value.ID, now)
-	return optimistic(result, err)
+	if err := optimistic(result, err); err != nil {
+		return Job{}, err
+	}
+	return r.get(ctx, e, value.TenantID, value.ID)
 }
 func (r *SQLRepository) AddOutbox(ctx context.Context, e sqlx.ExtContext, value OutboxEvent) error {
 	_, err := e.ExecContext(ctx, r.db.Rebind("INSERT INTO export_outbox_events (id,subject,envelope,attempts,available_at,published_at,last_error,version,created_at,updated_at,created_by,updated_by) VALUES (?,?,?,0,?,NULL,'',1,?,?,?,?)"), value.ID, value.Subject, value.Envelope, value.AvailableAt, value.CreatedAt, value.UpdatedAt, value.CreatedBy, value.UpdatedBy)
@@ -143,5 +161,10 @@ func notFound(err error) error {
 		return ErrNotFound
 	}
 	return err
+}
+func (r *SQLRepository) get(ctx context.Context, e sqlx.ExtContext, tenantID, id string) (Job, error) {
+	var value Job
+	err := sqlx.GetContext(ctx, e, &value, r.db.Rebind("SELECT "+jobColumns+" FROM export_jobs WHERE tenant_id=? AND id=?"), tenantID, id)
+	return value, notFound(err)
 }
 func normalize(value string) string { return strings.TrimSpace(value) }
