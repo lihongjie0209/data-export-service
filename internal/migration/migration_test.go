@@ -3,10 +3,22 @@ package migration
 import (
 	"database/sql"
 	"net/url"
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
 )
+
+func TestMySQLOutboxRetentionIndexUsesTextPrefix(t *testing.T) {
+	content, err := os.ReadFile("../../migrations/mysql/000004_outbox_retention.up.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(content), "id(191)") {
+		t.Fatal("MySQL TEXT outbox id must use a bounded index prefix")
+	}
+}
 
 func TestWithMigrationTable(t *testing.T) {
 	t.Parallel()
