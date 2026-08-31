@@ -1,0 +1,1 @@
+DROP INDEX export_jobs_metadata_retention_idx;

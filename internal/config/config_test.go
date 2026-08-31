@@ -39,7 +39,7 @@ func TestLoad_UsesCanonicalPlatformEventStreamDefaults(t *testing.T) {
 	if cfg.EventBus.DispatchInterval != time.Second || cfg.EventBus.DispatchBatchSize != 100 || cfg.EventBus.DispatchLease != 30*time.Second || cfg.EventBus.DispatchRetryDelay != 2*time.Second {
 		t.Fatalf("unexpected outbox dispatch defaults: %+v", cfg.EventBus)
 	}
-	if cfg.Cron.ExportCleanupSpec != "0 0 * * * *" || cfg.Cron.CleanupBatchSize != 100 {
+	if cfg.Cron.ExportCleanupSpec != "0 0 * * * *" || cfg.Cron.MetadataCleanupSpec != "0 30 * * * *" || cfg.Cron.MetadataRetention != 365*24*time.Hour || cfg.Cron.CleanupBatchSize != 100 {
 		t.Fatalf("unexpected export cleanup defaults: %+v", cfg.Cron)
 	}
 }
@@ -52,6 +52,17 @@ func TestConfigRejectsNonPositiveExportCleanupBatch(t *testing.T) {
 	}
 	if _, err := Load(path); err == nil {
 		t.Fatal("Load() error = nil, want cleanup batch validation error")
+	}
+}
+
+func TestConfigRejectsNonPositiveExportMetadataRetention(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte("cron:\n  metadata_retention: 0s\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(path); err == nil {
+		t.Fatal("Load() error = nil, want metadata retention validation error")
 	}
 }
 

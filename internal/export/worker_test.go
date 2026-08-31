@@ -76,6 +76,21 @@ func TestWorkerCleansExpiredResultAndEmitsEvent(t *testing.T) {
 	}
 }
 
+func TestWorkerPurgesOldExpiredMetadataUsingItsVersion(t *testing.T) {
+	now := time.Date(2026, 8, 31, 10, 0, 0, 0, time.FixedZone("UTC+8", 8*3600))
+	repository := &fakeRepository{job: Job{ID: "job-1", TenantID: "tenant-1", Status: StatusExpired, Version: 7, UpdatedAt: now.Add(-366 * 24 * time.Hour)}}
+	worker := NewWorker(repository, fakeTransaction{}, nil, &memoryStorage{}, time.Minute, time.Hour)
+	worker.now = func() time.Time { return now }
+
+	purged, err := worker.PurgeExpiredMetadata(context.Background(), 365*24*time.Hour, 10)
+	if err != nil || purged != 1 {
+		t.Fatalf("PurgeExpiredMetadata() = (%d, %v), want (1, nil)", purged, err)
+	}
+	if repository.job.ID != "" {
+		t.Fatalf("metadata was not deleted: %+v", repository.job)
+	}
+}
+
 func TestWorkerDoesNotRunUnclaimedJob(t *testing.T) {
 	repository := &fakeRepository{job: Job{ID: "job-1", TenantID: "tenant-1", Status: StatusCanceled}}
 	called := false

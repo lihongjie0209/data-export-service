@@ -99,6 +99,8 @@ cron:
   timezone: Asia/Shanghai
   sample_spec: "0 */5 * * * *"
   export_cleanup_spec: "0 0 * * * *"
+  metadata_cleanup_spec: "0 30 * * * *"
+  metadata_retention: 8760h
   cleanup_batch_size: 100
 migration:
   auto_up: false

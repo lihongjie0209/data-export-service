@@ -5,10 +5,12 @@
 ## 能力
 
 - CSV、JSONL、XLSX 流式编码，按批读取、常量级内存占用。
-- 任务状态：`queued -> running -> succeeded|failed|canceled`，结果到期后清理对象并进入 `expired`。
+- 任务状态：`queued -> running -> succeeded|failed|canceled`，结果到期后清理对象并进入 `expired`；`expired` 元数据保留 365 天后按批删除，删除同时校验版本，避免清理并发更新后的任务。
 - 租户隔离、幂等创建、版本号乐观锁取消和重试。
 - 最大行数、最大字节数、任务超时、进度上报、SHA-256 校验。
 - PostgreSQL、KingbaseES、MySQL 独立迁移；默认数据库 `platform`、Schema `data_export`。
+
+生产环境应在元数据保留期结束前通过 CDC 或受控导出归档需要长期保存的审计资料；服务不会把历史记录复制到其他服务的 OLTP 数据库。
 - 事务 Outbox + NATS JetStream durable consumer，失败重投和死信。
 - JWT/JWKS、PSK、POST+JSON 前端接口和独立 gRPC 端口。
 - MinIO/S3 流式 multipart 上传；失败或取消时删除不完整结果。

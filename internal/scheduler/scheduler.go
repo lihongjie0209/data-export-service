@@ -37,6 +37,24 @@ func New(lc fx.Lifecycle, cfg config.Config, locker *cache.Locker, worker *platf
 			return nil, err
 		}
 	}
+	if cfg.Cron.MetadataCleanupSpec != "" {
+		if _, err := runner.AddFunc(cfg.Cron.MetadataCleanupSpec, func() {
+			started := time.Now()
+			status := "success"
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+			defer cancel()
+			purged, runErr := worker.PurgeExpiredMetadata(ctx, cfg.Cron.MetadataRetention, cfg.Cron.CleanupBatchSize)
+			if runErr != nil {
+				status = "error"
+				logger.ErrorContext(ctx, "expired export metadata cleanup failed", "error", runErr, "purged", purged)
+			} else {
+				logger.InfoContext(ctx, "expired export metadata cleanup completed", "purged", purged)
+			}
+			metrics.ObserveCron("export_metadata_cleanup", status, started)
+		}); err != nil {
+			return nil, err
+		}
+	}
 	if cfg.Cron.SampleSpec != "" {
 		if _, err := runner.AddFunc(cfg.Cron.SampleSpec, func() {
 			started := time.Now()
