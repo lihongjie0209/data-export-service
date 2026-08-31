@@ -18,10 +18,7 @@ import (
 	"github.com/lihongjie0209/data-export-service/internal/config"
 	"github.com/lihongjie0209/data-export-service/internal/database"
 	"github.com/lihongjie0209/data-export-service/internal/objectstorage"
-	platformevents "github.com/lihongjie0209/microservice-platform-go/eventbus"
 	platformprincipal "github.com/lihongjie0209/microservice-platform-go/principal"
-	exportv1 "github.com/lihongjie0209/platform-protos/gen/go/platform/export/v1"
-	"google.golang.org/protobuf/proto"
 )
 
 var codePattern = regexp.MustCompile(`^[a-z][a-z0-9._-]{1,127}$`)
@@ -179,16 +176,11 @@ func (s *Service) CreateDownloadURL(ctx context.Context, tenantID, id string, tt
 	return value, now.Add(ttl), job, nil
 }
 func (s *Service) addEvent(ctx context.Context, tx *sqlx.Tx, job Job, change, actor string, at time.Time) error {
-	payload := &exportv1.ExportJobChangedEvent{Job: ToProto(job), ChangeType: change}
-	envelope, err := platformevents.NewEnvelope(platformevents.Metadata{EventID: uuid.NewString(), EventType: "platform.export.v1.ExportJobChanged", AggregateID: job.ID, AggregateType: "export_job", TenantID: job.TenantID, SchemaVersion: 1, ActorID: actor, OccurredAt: at}, payload)
+	event, err := jobChangedEvent(job, change, actor, at)
 	if err != nil {
 		return err
 	}
-	encoded, err := proto.Marshal(envelope)
-	if err != nil {
-		return err
-	}
-	return s.repository.AddOutbox(ctx, tx, OutboxEvent{ID: envelope.GetEventId(), Subject: "platform.export.job." + change + ".v1", Envelope: encoded, AvailableAt: at, CreatedAt: at, UpdatedAt: at, CreatedBy: actor, UpdatedBy: actor})
+	return s.repository.AddOutbox(ctx, tx, event)
 }
 func authorize(ctx context.Context, tenantID string) (string, error) {
 	p, ok := platformprincipal.FromContext(ctx)

@@ -74,17 +74,40 @@ func (r *fakeRepository) Claim(_ context.Context, tenant, id string, now time.Ti
 	return r.job, true, nil
 }
 func (r *fakeRepository) Progress(_ context.Context, _ string, rows, bytes int64, percent int32, _ time.Time) error {
+	if r.job.Status != StatusRunning {
+		return ErrStaleVersion
+	}
 	r.progress = append(r.progress, Progress{Rows: rows, Bytes: bytes})
 	r.job.Version++
 	r.job.ProgressPercent = percent
 	return nil
 }
 func (r *fakeRepository) Succeed(_ context.Context, _ sqlx.ExtContext, value Job) error {
+	if r.job.Status != StatusRunning {
+		return ErrStaleVersion
+	}
 	r.job = value
 	r.job.Version++
 	return nil
 }
 func (r *fakeRepository) Fail(_ context.Context, _ sqlx.ExtContext, value Job) error {
+	if r.job.Status != StatusRunning {
+		return ErrStaleVersion
+	}
+	r.job = value
+	r.job.Version++
+	return nil
+}
+func (r *fakeRepository) ListExpired(_ context.Context, now time.Time, limit int) ([]Job, error) {
+	if limit > 0 && r.job.Status == StatusSucceeded && r.job.ExpiresAt != nil && !r.job.ExpiresAt.After(now) {
+		return []Job{r.job}, nil
+	}
+	return nil, nil
+}
+func (r *fakeRepository) Expire(_ context.Context, _ sqlx.ExtContext, value Job, _ time.Time) error {
+	if r.job.Status != StatusSucceeded {
+		return ErrStaleVersion
+	}
 	r.job = value
 	r.job.Version++
 	return nil

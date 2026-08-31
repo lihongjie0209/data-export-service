@@ -5,13 +5,14 @@
 ## 能力
 
 - CSV、JSONL、XLSX 流式编码，按批读取、常量级内存占用。
-- 任务状态：`queued -> running -> succeeded|failed|canceled`。
+- 任务状态：`queued -> running -> succeeded|failed|canceled`，结果到期后清理对象并进入 `expired`。
 - 租户隔离、幂等创建、版本号乐观锁取消和重试。
 - 最大行数、最大字节数、任务超时、进度上报、SHA-256 校验。
 - PostgreSQL、KingbaseES、MySQL 独立迁移；默认数据库 `platform`、Schema `data_export`。
 - 事务 Outbox + NATS JetStream durable consumer，失败重投和死信。
 - JWT/JWKS、PSK、POST+JSON 前端接口和独立 gRPC 端口。
 - MinIO/S3 流式 multipart 上传；失败或取消时删除不完整结果。
+- 成功、失败、取消、重试和过期状态均通过事务 Outbox 发布；Cron 分批清理到期对象。
 
 ## 接口
 

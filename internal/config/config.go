@@ -164,9 +164,11 @@ type PSK struct {
 	GRPCMethods []string `mapstructure:"grpc_methods"`
 }
 type Cron struct {
-	Enabled    bool   `mapstructure:"enabled"`
-	Timezone   string `mapstructure:"timezone"`
-	SampleSpec string `mapstructure:"sample_spec"`
+	Enabled           bool   `mapstructure:"enabled"`
+	Timezone          string `mapstructure:"timezone"`
+	SampleSpec        string `mapstructure:"sample_spec"`
+	ExportCleanupSpec string `mapstructure:"export_cleanup_spec"`
+	CleanupBatchSize  int    `mapstructure:"cleanup_batch_size"`
 }
 type Migration struct {
 	AutoUp       bool   `mapstructure:"auto_up"`
@@ -430,6 +432,8 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("cron.enabled", true)
 	v.SetDefault("cron.timezone", "Asia/Shanghai")
 	v.SetDefault("cron.sample_spec", "0 */5 * * * *")
+	v.SetDefault("cron.export_cleanup_spec", "0 0 * * * *")
+	v.SetDefault("cron.cleanup_batch_size", 100)
 	v.SetDefault("migration.path", "migrations/postgres")
 	v.SetDefault("migration.database_url", "")
 	v.SetDefault("migration.auto_up", false)
@@ -605,6 +609,9 @@ func (c Config) Validate() error {
 	}
 	if c.EventBus.Enabled && c.EventBus.ConsumerAckWait <= c.Export.JobTimeout {
 		return errors.New("event_bus.consumer_ack_wait must exceed export.job_timeout")
+	}
+	if c.Cron.Enabled && c.Cron.ExportCleanupSpec != "" && c.Cron.CleanupBatchSize <= 0 {
+		return errors.New("cron.cleanup_batch_size must be positive when export cleanup is enabled")
 	}
 	if c.Export.BatchSize < 1 || c.Export.BatchSize > 10000 || c.Export.MaxRows < 1 || c.Export.MaxBytes < 1 || c.Export.JobTimeout <= 0 || c.Export.ResultTTL <= 0 || c.Export.WorkerCount < 1 || c.Export.WorkerCount > 32 || c.Export.ProgressEvery < 1 {
 		return errors.New("export requires valid batch_size, limits, timeouts, worker_count, and progress_every")

@@ -61,7 +61,11 @@ func (w *Worker) Process(ctx context.Context, tenantID, id string) error {
 			_ = w.storage.Delete(context.WithoutCancel(ctx), job.ObjectKey)
 			return err
 		}
-		return nil
+		event, err := jobChangedEvent(job, "succeeded", job.UpdatedBy, completed)
+		if err != nil {
+			return err
+		}
+		return w.repository.AddOutbox(ctx, tx, event)
 	})
 }
 func (w *Worker) fail(ctx context.Context, job Job, code string, cause error) error {
@@ -73,11 +77,61 @@ func (w *Worker) fail(ctx context.Context, job Job, code string, cause error) er
 	job.CompletedAt = &now
 	job.UpdatedAt = now
 	job.UpdatedBy = "data-export-worker"
-	persistErr := w.transactor.Within(context.WithoutCancel(ctx), nil, func(tx *sqlx.Tx) error { return w.repository.Fail(context.WithoutCancel(ctx), tx, job) })
+	persistCtx := context.WithoutCancel(ctx)
+	persistErr := w.transactor.Within(persistCtx, nil, func(tx *sqlx.Tx) error {
+		if err := w.repository.Fail(persistCtx, tx, job); err != nil {
+			return err
+		}
+		event, err := jobChangedEvent(job, "failed", job.UpdatedBy, now)
+		if err != nil {
+			return err
+		}
+		return w.repository.AddOutbox(persistCtx, tx, event)
+	})
 	if persistErr != nil {
 		return errors.Join(cause, persistErr)
 	}
 	return cause
+}
+
+// CleanupExpired removes expired result objects before atomically making them unavailable.
+// Object deletion is idempotent, so a database failure is safely retried on the next run.
+func (w *Worker) CleanupExpired(ctx context.Context, limit int) (int, error) {
+	if limit <= 0 {
+		return 0, errors.New("cleanup limit must be positive")
+	}
+	now := w.now()
+	jobs, err := w.repository.ListExpired(ctx, now, limit)
+	if err != nil {
+		return 0, err
+	}
+	cleaned := 0
+	for _, job := range jobs {
+		if err := w.storage.Delete(ctx, job.ObjectKey); err != nil {
+			return cleaned, err
+		}
+		job.Status = StatusExpired
+		job.UpdatedAt = now
+		job.UpdatedBy = "data-export-cleaner"
+		err := w.transactor.Within(ctx, nil, func(tx *sqlx.Tx) error {
+			if err := w.repository.Expire(ctx, tx, job, now); err != nil {
+				return err
+			}
+			event, err := jobChangedEvent(job, "expired", job.UpdatedBy, now)
+			if err != nil {
+				return err
+			}
+			return w.repository.AddOutbox(ctx, tx, event)
+		})
+		if errors.Is(err, ErrStaleVersion) {
+			continue
+		}
+		if err != nil {
+			return cleaned, err
+		}
+		cleaned++
+	}
+	return cleaned, nil
 }
 func errorCode(err error) string {
 	switch {

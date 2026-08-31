@@ -8,6 +8,7 @@ const (
 	StatusSucceeded = "succeeded"
 	StatusFailed    = "failed"
 	StatusCanceled  = "canceled"
+	StatusExpired   = "expired"
 
 	FormatCSV   = "csv"
 	FormatJSONL = "jsonl"

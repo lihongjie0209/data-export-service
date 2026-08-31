@@ -98,6 +98,8 @@ cron:
   enabled: true
   timezone: Asia/Shanghai
   sample_spec: "0 */5 * * * *"
+  export_cleanup_spec: "0 0 * * * *"
+  cleanup_batch_size: 100
 migration:
   auto_up: false
   create_schema: false

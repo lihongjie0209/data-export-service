@@ -26,6 +26,9 @@ func TestWorkerCompletesClaimedJob(t *testing.T) {
 	if repository.job.Status != StatusSucceeded || repository.job.RowsExported != 1 || repository.job.Checksum == "" || repository.job.ExpiresAt == nil {
 		t.Fatalf("job=%+v", repository.job)
 	}
+	if len(repository.events) != 1 || repository.events[0].Subject != "platform.export.job.succeeded.v1" {
+		t.Fatalf("events=%+v", repository.events)
+	}
 }
 
 func TestWorkerPersistsFailureAndDeletesPartialObject(t *testing.T) {
@@ -47,6 +50,25 @@ func TestWorkerPersistsFailureAndDeletesPartialObject(t *testing.T) {
 	if !deleted {
 		t.Fatal("partial object was not deleted")
 	}
+	if len(repository.events) != 1 || repository.events[0].Subject != "platform.export.job.failed.v1" {
+		t.Fatalf("events=%+v", repository.events)
+	}
+}
+
+func TestWorkerCleansExpiredResultAndEmitsEvent(t *testing.T) {
+	now := time.Date(2026, 8, 31, 10, 0, 0, 0, time.FixedZone("UTC+8", 8*3600))
+	expires := now.Add(-time.Minute)
+	repository := &fakeRepository{job: Job{ID: "job-1", TenantID: "tenant-1", ObjectKey: "tenant-1/job-1.csv", Status: StatusSucceeded, ExpiresAt: &expires, Version: 3}}
+	storage := &memoryStorage{}
+	worker := NewWorker(repository, fakeTransaction{}, nil, storage, time.Minute, time.Hour)
+	worker.now = func() time.Time { return now }
+	count, err := worker.CleanupExpired(context.Background(), 10)
+	if err != nil || count != 1 {
+		t.Fatalf("count=%d err=%v", count, err)
+	}
+	if repository.job.Status != StatusExpired || len(repository.events) != 1 || repository.events[0].Subject != "platform.export.job.expired.v1" {
+		t.Fatalf("job=%+v events=%+v", repository.job, repository.events)
+	}
 }
 
 func TestWorkerDoesNotRunUnclaimedJob(t *testing.T) {
@@ -60,5 +82,31 @@ func TestWorkerDoesNotRunUnclaimedJob(t *testing.T) {
 	}
 	if called {
 		t.Fatal("provider called for unclaimed job")
+	}
+}
+
+func TestWorkerStopsAndKeepsCanceledStateWhenProgressUpdateLosesRunningState(t *testing.T) {
+	repository := &fakeRepository{job: Job{ID: "job-1", TenantID: "tenant-1", DatasetCode: "users", ProviderService: "identity-service", Format: FormatJSONL, SelectedColumnsJSON: `["id"]`, ObjectKey: "partial", Status: StatusQueued, Version: 1}}
+	storage := &memoryStorage{}
+	provider := providerFunc(func(_ context.Context, _ string, _ StreamRequest, receive func(Batch) error) error {
+		repository.job.Status = StatusCanceled
+		return receive(Batch{Columns: []Column{{Key: "id", Title: "ID"}}, Rows: []map[string]any{{"id": "u1"}}, Done: true})
+	})
+	worker := NewWorker(repository, fakeTransaction{}, NewPipeline(provider, storage, 10, 100, 1024, 1), storage, time.Minute, time.Hour)
+	err := worker.Process(context.Background(), "tenant-1", "job-1")
+	if !errors.Is(err, ErrStaleVersion) {
+		t.Fatalf("error=%v", err)
+	}
+	if repository.job.Status != StatusCanceled {
+		t.Fatalf("status=%s", repository.job.Status)
+	}
+	if len(repository.events) != 0 {
+		t.Fatalf("unexpected events=%+v", repository.events)
+	}
+	storage.mu.Lock()
+	deleted := storage.deleted
+	storage.mu.Unlock()
+	if !deleted {
+		t.Fatal("partial object was not deleted after cancellation")
 	}
 }
