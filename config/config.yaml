@@ -80,7 +80,7 @@ jwt:
   ttl: 2h
 auth:
   jwks_url: ""
-  issuer: ""
+  issuer: identity-service
   audience: data-export-service
   client_id: ""
   client_secret: ""
