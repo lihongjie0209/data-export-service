@@ -2,7 +2,6 @@ package export
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -16,6 +15,7 @@ import (
 	"github.com/lihongjie0209/data-export-service/internal/grpcclient"
 	"github.com/lihongjie0209/data-export-service/internal/observability"
 	"github.com/lihongjie0209/data-export-service/internal/outbound"
+	"github.com/lihongjie0209/microservice-platform-go/exportprovider"
 	"github.com/lihongjie0209/microservice-platform-go/serviceregistry"
 	exportv1 "github.com/lihongjie0209/platform-protos/gen/go/platform/export/v1"
 	registryv1 "github.com/lihongjie0209/platform-protos/gen/go/platform/registry/v1"
@@ -153,26 +153,11 @@ func (p *GRPCProvider) client(service, dataset string) (exportv1.ExportProviderS
 }
 
 func supportsDataset(metadata map[string]string, dataset string) bool {
-	raw := metadata["platform.export.datasets"]
-	if raw == "" {
+	values, err := exportprovider.ParseMetadata(metadata)
+	if err != nil {
 		return false
 	}
-	var values []string
-	if json.Unmarshal([]byte(raw), &values) == nil {
-		for _, value := range values {
-			if value == dataset {
-				return true
-			}
-		}
-		return false
-	}
-	var descriptors []struct {
-		Code string `json:"code"`
-	}
-	if json.Unmarshal([]byte(raw), &descriptors) != nil {
-		return false
-	}
-	for _, value := range descriptors {
+	for _, value := range values {
 		if value.Code == dataset {
 			return true
 		}

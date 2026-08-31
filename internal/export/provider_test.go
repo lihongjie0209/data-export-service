@@ -3,12 +3,12 @@ package export
 import "testing"
 
 func TestSupportsDatasetMetadataForms(t *testing.T) {
-	for _, metadata := range []map[string]string{{"platform.export.datasets": `["billing.invoices","billing.credits"]`}, {"platform.export.datasets": `[{"code":"billing.invoices","title":"Invoices"}]`}} {
+	for _, metadata := range []map[string]string{{"platform.export.provider": "true", "platform.export.datasets": `[{"code":"billing.invoices","title":"Invoices","formats":["csv"]}]`}} {
 		if !supportsDataset(metadata, "billing.invoices") {
 			t.Fatalf("not supported: %v", metadata)
 		}
 	}
-	if supportsDataset(map[string]string{"platform.export.datasets": `["users"]`}, "billing.invoices") {
+	if supportsDataset(map[string]string{"platform.export.provider": "true", "platform.export.datasets": `[{"code":"users","title":"Users","formats":["csv"]}]`}, "billing.invoices") {
 		t.Fatal("unregistered dataset accepted")
 	}
 }
