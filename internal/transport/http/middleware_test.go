@@ -1,6 +1,7 @@
 package httptransport
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -12,8 +13,52 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/lihongjie0209/data-export-service/internal/auth"
 	"github.com/lihongjie0209/data-export-service/internal/config"
+	platformauthz "github.com/lihongjie0209/microservice-platform-go/authz"
 	platformprincipal "github.com/lihongjie0209/microservice-platform-go/principal"
 )
+
+type authorizationStub struct{ err error }
+
+func (a authorizationStub) Authorize(context.Context, platformprincipal.Principal, platformauthz.Requirement) error {
+	return a.err
+}
+
+func TestExportHTTPRequirementCoversEveryBusinessRoute(t *testing.T) {
+	t.Parallel()
+	for _, route := range []string{"/api/v1/exports/create", "/api/v1/exports/get", "/api/v1/exports/list", "/api/v1/exports/cancel", "/api/v1/exports/retry", "/api/v1/exports/download"} {
+		requirement, ok := exportHTTPRequirement(route)
+		if !ok || requirement.Resource == "" || requirement.Action == "" {
+			t.Fatalf("route %q requirement = %+v, %v", route, requirement, ok)
+		}
+	}
+	if _, ok := exportHTTPRequirement("/api/v1/version"); ok {
+		t.Fatal("version must not require a domain permission")
+	}
+}
+
+func TestAuthorizationFailsClosedAndClassifiesOutage(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+	for _, test := range []struct {
+		name   string
+		err    error
+		status int
+	}{{"denied", platformauthz.ErrDenied, http.StatusForbidden}, {"unavailable", platformauthz.ErrDecisionUnavailable, http.StatusServiceUnavailable}} {
+		t.Run(test.name, func(t *testing.T) {
+			router := gin.New()
+			router.Use(RequestID(), func(c *gin.Context) {
+				c.Request = c.Request.WithContext(platformprincipal.WithContext(c.Request.Context(), platformprincipal.Principal{ID: "user-1", Type: platformprincipal.TypeUser, TenantID: "tenant-1", MembershipID: "membership-1"}))
+				c.Next()
+			}, Authorization(true, authorizationStub{test.err}, slog.New(slog.NewTextHandler(io.Discard, nil))))
+			router.POST("/api/v1/exports/get", func(c *gin.Context) { OK(c, nil) })
+			recorder := httptest.NewRecorder()
+			router.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/api/v1/exports/get", nil))
+			if recorder.Code != test.status {
+				t.Fatalf("status = %d, want %d", recorder.Code, test.status)
+			}
+		})
+	}
+}
 
 func TestRequestID(t *testing.T) {
 	t.Parallel()

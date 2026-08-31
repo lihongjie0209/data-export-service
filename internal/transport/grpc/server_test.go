@@ -7,10 +7,26 @@ import (
 	"github.com/lihongjie0209/data-export-service/internal/auth"
 	"github.com/lihongjie0209/data-export-service/internal/config"
 	platformprincipal "github.com/lihongjie0209/microservice-platform-go/principal"
+	exportv1 "github.com/lihongjie0209/platform-protos/gen/go/platform/export/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
+
+func TestExportGRPCRequirementCoversEveryBusinessMethod(t *testing.T) {
+	t.Parallel()
+	resolve := exportGRPCRequirement(true)
+	methods := []string{exportv1.ExportService_CreateExportJob_FullMethodName, exportv1.ExportService_GetExportJob_FullMethodName, exportv1.ExportService_ListExportJobs_FullMethodName, exportv1.ExportService_CancelExportJob_FullMethodName, exportv1.ExportService_RetryExportJob_FullMethodName, exportv1.ExportService_CreateDownloadURL_FullMethodName}
+	for _, method := range methods {
+		requirement, ok := resolve(method)
+		if !ok || requirement.Resource == "" || requirement.Action == "" {
+			t.Fatalf("method %q requirement = %+v, %v", method, requirement, ok)
+		}
+	}
+	if _, ok := exportGRPCRequirement(false)(exportv1.ExportService_GetExportJob_FullMethodName); ok {
+		t.Fatal("disabled authorization must not enforce")
+	}
+}
 
 func TestAuthenticateGRPC_PSKWildcard(t *testing.T) {
 	t.Parallel()
