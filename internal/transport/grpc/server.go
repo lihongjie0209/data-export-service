@@ -72,12 +72,12 @@ func exportGRPCRequirement(enabled bool) platformauthz.GRPCResolver {
 			return platformauthz.Requirement{}, false
 		}
 		requirements := map[string]platformauthz.Requirement{
-			exportv1.ExportService_CreateExportJob_FullMethodName:   {Resource: "export.job", Action: "create"},
-			exportv1.ExportService_GetExportJob_FullMethodName:      {Resource: "export.job", Action: "read"},
-			exportv1.ExportService_ListExportJobs_FullMethodName:    {Resource: "export.job", Action: "list"},
-			exportv1.ExportService_CancelExportJob_FullMethodName:   {Resource: "export.job", Action: "cancel"},
-			exportv1.ExportService_RetryExportJob_FullMethodName:    {Resource: "export.job", Action: "retry"},
-			exportv1.ExportService_CreateDownloadURL_FullMethodName: {Resource: "export.job", Action: "download"},
+			exportv1.ExportService_CreateExportJob_FullMethodName:   {Resource: "export.job", Action: "create", Scope: platformauthz.ScopePrincipal},
+			exportv1.ExportService_GetExportJob_FullMethodName:      {Resource: "export.job", Action: "read", Scope: platformauthz.ScopePrincipal},
+			exportv1.ExportService_ListExportJobs_FullMethodName:    {Resource: "export.job", Action: "list", Scope: platformauthz.ScopePrincipal},
+			exportv1.ExportService_CancelExportJob_FullMethodName:   {Resource: "export.job", Action: "cancel", Scope: platformauthz.ScopePrincipal},
+			exportv1.ExportService_RetryExportJob_FullMethodName:    {Resource: "export.job", Action: "retry", Scope: platformauthz.ScopePrincipal},
+			exportv1.ExportService_CreateDownloadURL_FullMethodName: {Resource: "export.job", Action: "download", Scope: platformauthz.ScopePrincipal},
 		}
 		requirement, ok := requirements[method]
 		return requirement, ok

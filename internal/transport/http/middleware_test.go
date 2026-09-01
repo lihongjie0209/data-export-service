@@ -30,6 +30,9 @@ func TestExportHTTPRequirementCoversEveryBusinessRoute(t *testing.T) {
 		if !ok || requirement.Resource == "" || requirement.Action == "" {
 			t.Fatalf("route %q requirement = %+v, %v", route, requirement, ok)
 		}
+		if requirement.Scope != platformauthz.ScopePrincipal {
+			t.Fatalf("route %q scope = %q, want principal", route, requirement.Scope)
+		}
 	}
 	if _, ok := exportHTTPRequirement("/api/v1/version"); ok {
 		t.Fatal("version must not require a domain permission")
