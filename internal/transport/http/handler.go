@@ -84,6 +84,7 @@ func (h *Handler) Version(c *gin.Context) { OK(c, buildinfo.Current()) }
 
 type CreateExportRequest struct {
 	TenantID        string          `json:"tenant_id"`
+	ApplicationID   string          `json:"application_id"`
 	DatasetCode     string          `json:"dataset_code"`
 	ProviderService string          `json:"provider_service"`
 	Format          string          `json:"format"`
@@ -93,38 +94,44 @@ type CreateExportRequest struct {
 	IdempotencyKey  string          `json:"idempotency_key"`
 }
 type GetExportRequest struct {
-	TenantID string `json:"tenant_id"`
-	ID       string `json:"id"`
+	TenantID      string `json:"tenant_id"`
+	ApplicationID string `json:"application_id"`
+	ID            string `json:"id"`
 }
 type ListExportsRequest struct {
-	TenantID    string     `json:"tenant_id"`
-	Status      string     `json:"status"`
-	DatasetCode string     `json:"dataset_code"`
-	CreatedFrom *time.Time `json:"created_from"`
-	CreatedTo   *time.Time `json:"created_to"`
-	Page        int32      `json:"page"`
-	PageSize    int32      `json:"page_size"`
+	TenantID      string     `json:"tenant_id"`
+	ApplicationID string     `json:"application_id"`
+	Status        string     `json:"status"`
+	DatasetCode   string     `json:"dataset_code"`
+	CreatedFrom   *time.Time `json:"created_from"`
+	CreatedTo     *time.Time `json:"created_to"`
+	Page          int32      `json:"page"`
+	PageSize      int32      `json:"page_size"`
 }
 type VersionedExportRequest struct {
-	TenantID string `json:"tenant_id"`
-	ID       string `json:"id"`
-	Version  int64  `json:"version"`
+	TenantID      string `json:"tenant_id"`
+	ApplicationID string `json:"application_id"`
+	ID            string `json:"id"`
+	Version       int64  `json:"version"`
 }
 type RetryExportRequest struct {
 	TenantID       string `json:"tenant_id"`
+	ApplicationID  string `json:"application_id"`
 	ID             string `json:"id"`
 	Version        int64  `json:"version"`
 	IdempotencyKey string `json:"idempotency_key"`
 }
 type DownloadExportRequest struct {
-	TenantID   string `json:"tenant_id"`
-	ID         string `json:"id"`
-	TTLSeconds int32  `json:"ttl_seconds"`
+	TenantID      string `json:"tenant_id"`
+	ApplicationID string `json:"application_id"`
+	ID            string `json:"id"`
+	TTLSeconds    int32  `json:"ttl_seconds"`
 }
 
 type ExportJobBody struct {
 	ID              string          `json:"id"`
 	TenantID        string          `json:"tenant_id"`
+	ApplicationID   string          `json:"application_id"`
 	DatasetCode     string          `json:"dataset_code"`
 	ProviderService string          `json:"provider_service"`
 	Format          string          `json:"format"`
@@ -194,7 +201,7 @@ func (h *Handler) CreateExport(c *gin.Context) {
 		return
 	}
 	columns, _ := json.Marshal(r.SelectedColumns)
-	value, duplicate, err := h.exports.Create(c.Request.Context(), platformexport.CreateInput{TenantID: r.TenantID, DatasetCode: r.DatasetCode, ProviderService: r.ProviderService, Format: r.Format, Filename: r.Filename, QueryJSON: string(rawObject(r.Query)), SelectedColumnsJSON: string(columns), IdempotencyKey: r.IdempotencyKey})
+	value, duplicate, err := h.exports.Create(c.Request.Context(), platformexport.CreateInput{TenantID: r.TenantID, ApplicationID: r.ApplicationID, DatasetCode: r.DatasetCode, ProviderService: r.ProviderService, Format: r.Format, Filename: r.Filename, QueryJSON: string(rawObject(r.Query)), SelectedColumnsJSON: string(columns), IdempotencyKey: r.IdempotencyKey})
 	if err != nil {
 		Fail(c, h.logger, err)
 		return
@@ -217,7 +224,7 @@ func (h *Handler) GetExport(c *gin.Context) {
 	if !h.bind(c, &r) {
 		return
 	}
-	value, err := h.exports.Get(c.Request.Context(), r.TenantID, r.ID)
+	value, err := h.exports.Get(c.Request.Context(), r.TenantID, r.ApplicationID, r.ID)
 	if err != nil {
 		Fail(c, h.logger, err)
 		return
@@ -240,7 +247,7 @@ func (h *Handler) ListExports(c *gin.Context) {
 	if !h.bind(c, &r) {
 		return
 	}
-	value, err := h.exports.List(c.Request.Context(), platformexport.ListFilter{TenantID: r.TenantID, Status: r.Status, DatasetCode: r.DatasetCode, CreatedFrom: r.CreatedFrom, CreatedTo: r.CreatedTo, Page: r.Page, PageSize: r.PageSize})
+	value, err := h.exports.List(c.Request.Context(), platformexport.ListFilter{TenantID: r.TenantID, ApplicationID: r.ApplicationID, Status: r.Status, DatasetCode: r.DatasetCode, CreatedFrom: r.CreatedFrom, CreatedTo: r.CreatedTo, Page: r.Page, PageSize: r.PageSize})
 	if err != nil {
 		Fail(c, h.logger, err)
 		return
@@ -277,7 +284,7 @@ func (h *Handler) CancelExport(c *gin.Context) {
 	if !h.bind(c, &r) {
 		return
 	}
-	value, err := h.exports.Cancel(c.Request.Context(), r.TenantID, r.ID, r.Version)
+	value, err := h.exports.Cancel(c.Request.Context(), r.TenantID, r.ApplicationID, r.ID, r.Version)
 	if err != nil {
 		Fail(c, h.logger, err)
 		return
@@ -300,7 +307,7 @@ func (h *Handler) RetryExport(c *gin.Context) {
 	if !h.bind(c, &r) {
 		return
 	}
-	value, duplicate, err := h.exports.Retry(c.Request.Context(), r.TenantID, r.ID, r.Version, r.IdempotencyKey)
+	value, duplicate, err := h.exports.Retry(c.Request.Context(), r.TenantID, r.ApplicationID, r.ID, r.Version, r.IdempotencyKey)
 	if err != nil {
 		Fail(c, h.logger, err)
 		return
@@ -312,7 +319,7 @@ func exportJobBody(value platformexport.Job) ExportJobBody {
 	columns := []string{}
 	_ = json.Unmarshal([]byte(value.SelectedColumnsJSON), &columns)
 	return ExportJobBody{
-		ID: value.ID, TenantID: value.TenantID, DatasetCode: value.DatasetCode, ProviderService: value.ProviderService,
+		ID: value.ID, TenantID: value.TenantID, ApplicationID: value.ApplicationID, DatasetCode: value.DatasetCode, ProviderService: value.ProviderService,
 		Format: value.Format, Filename: value.Filename, Query: rawObject(json.RawMessage(value.QueryJSON)),
 		SelectedColumns: columns, Status: value.Status, RowsExported: value.RowsExported, BytesWritten: value.BytesWritten,
 		ProgressPercent: value.ProgressPercent, ObjectKey: value.ObjectKey, ContentType: value.ContentType, Checksum: value.Checksum,
@@ -350,7 +357,7 @@ func (h *Handler) DownloadExport(c *gin.Context) {
 	if !h.bind(c, &r) {
 		return
 	}
-	value, expires, job, err := h.exports.CreateDownloadURL(c.Request.Context(), r.TenantID, r.ID, time.Duration(r.TTLSeconds)*time.Second)
+	value, expires, job, err := h.exports.CreateDownloadURL(c.Request.Context(), r.TenantID, r.ApplicationID, r.ID, time.Duration(r.TTLSeconds)*time.Second)
 	if err != nil {
 		Fail(c, h.logger, err)
 		return

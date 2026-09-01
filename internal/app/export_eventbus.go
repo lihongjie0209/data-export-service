@@ -19,7 +19,7 @@ import (
 )
 
 type jobProcessor interface {
-	Process(context.Context, string, string) error
+	Process(context.Context, string, string, string) error
 }
 type exportEventRuntime struct {
 	cfg    config.Config
@@ -104,10 +104,10 @@ func (r *exportEventRuntime) handleRequested(ctx context.Context, envelope *even
 		return err
 	}
 	job := payload.GetJob()
-	if payload.GetChangeType() != "requested" || job == nil {
+	if payload.GetChangeType() != "requested" || job == nil || job.GetApplicationId() == "" || job.GetTenantId() != envelope.GetTenantId() || job.GetApplicationId() != envelope.GetApplicationId() {
 		return errors.New("invalid export requested event")
 	}
-	return r.worker.Process(ctx, job.GetTenantId(), job.GetId())
+	return r.worker.Process(ctx, job.GetTenantId(), job.GetApplicationId(), job.GetId())
 }
 func (r *exportEventRuntime) stop(context.Context) error {
 	if r.cancel != nil {

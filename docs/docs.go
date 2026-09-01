@@ -536,6 +536,9 @@ const docTemplate = `{
         "httptransport.CreateExportRequest": {
             "type": "object",
             "properties": {
+                "application_id": {
+                    "type": "string"
+                },
                 "dataset_code": {
                     "type": "string"
                 },
@@ -568,6 +571,9 @@ const docTemplate = `{
         "httptransport.DownloadExportRequest": {
             "type": "object",
             "properties": {
+                "application_id": {
+                    "type": "string"
+                },
                 "id": {
                     "type": "string"
                 },
@@ -602,6 +608,9 @@ const docTemplate = `{
         "httptransport.ExportJobBody": {
             "type": "object",
             "properties": {
+                "application_id": {
+                    "type": "string"
+                },
                 "bytes_written": {
                     "type": "integer"
                 },
@@ -716,6 +725,9 @@ const docTemplate = `{
         "httptransport.GetExportRequest": {
             "type": "object",
             "properties": {
+                "application_id": {
+                    "type": "string"
+                },
                 "id": {
                     "type": "string"
                 },
@@ -727,6 +739,9 @@ const docTemplate = `{
         "httptransport.ListExportsRequest": {
             "type": "object",
             "properties": {
+                "application_id": {
+                    "type": "string"
+                },
                 "created_from": {
                     "type": "string"
                 },
@@ -776,6 +791,9 @@ const docTemplate = `{
         "httptransport.RetryExportRequest": {
             "type": "object",
             "properties": {
+                "application_id": {
+                    "type": "string"
+                },
                 "id": {
                     "type": "string"
                 },
@@ -793,6 +811,9 @@ const docTemplate = `{
         "httptransport.VersionedExportRequest": {
             "type": "object",
             "properties": {
+                "application_id": {
+                    "type": "string"
+                },
                 "id": {
                     "type": "string"
                 },

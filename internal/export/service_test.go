@@ -8,10 +8,17 @@ import (
 	"time"
 
 	"github.com/jmoiron/sqlx"
+	"github.com/lihongjie0209/data-export-service/internal/apperror"
+	"github.com/lihongjie0209/data-export-service/internal/config"
+	"github.com/lihongjie0209/microservice-platform-go/appaccess"
 	platformprincipal "github.com/lihongjie0209/microservice-platform-go/principal"
 )
 
 type fakeTransaction struct{}
+
+type applicationVerifier struct{ err error }
+
+func (v applicationVerifier) Verify(context.Context, string, string) error { return v.err }
 
 func (fakeTransaction) Within(_ context.Context, _ *sql.TxOptions, fn func(*sqlx.Tx) error) error {
 	return fn(nil)
@@ -26,25 +33,25 @@ type fakeRepository struct {
 }
 
 func (r *fakeRepository) Create(_ context.Context, _ sqlx.ExtContext, value Job) (Job, bool, error) {
-	if r.job.ID != "" {
+	if r.job.ID != "" && r.job.TenantID == value.TenantID && r.job.ApplicationID == value.ApplicationID {
 		return r.job, false, nil
 	}
 	r.job = value
 	r.created = true
 	return value, true, nil
 }
-func (r *fakeRepository) Get(_ context.Context, tenant, id string) (Job, error) {
-	if r.job.ID != id || r.job.TenantID != tenant {
+func (r *fakeRepository) Get(_ context.Context, tenant, application, id string) (Job, error) {
+	if r.job.ID != id || r.job.TenantID != tenant || r.job.ApplicationID != application {
 		return Job{}, ErrNotFound
 	}
 	return r.job, nil
 }
 func (*fakeRepository) List(context.Context, ListFilter) (Page, error) { return Page{}, nil }
-func (r *fakeRepository) Cancel(_ context.Context, _ sqlx.ExtContext, tenant, id string, expected int64, actor string, now time.Time) error {
+func (r *fakeRepository) Cancel(_ context.Context, _ sqlx.ExtContext, tenant, application, id string, expected int64, actor string, now time.Time) error {
 	if r.cancelErr != nil {
 		return r.cancelErr
 	}
-	if r.job.ID != id || r.job.TenantID != tenant || r.job.Version != expected {
+	if r.job.ID != id || r.job.TenantID != tenant || r.job.ApplicationID != application || r.job.Version != expected {
 		return ErrStaleVersion
 	}
 	r.job.Status = StatusCanceled
@@ -64,8 +71,8 @@ func (r *fakeRepository) Retry(_ context.Context, _ sqlx.ExtContext, value Job, 
 	r.job.UpdatedBy = value.UpdatedBy
 	return nil
 }
-func (r *fakeRepository) Claim(_ context.Context, tenant, id string, now time.Time) (Job, bool, error) {
-	if r.job.TenantID != tenant || r.job.ID != id || r.job.Status != StatusQueued {
+func (r *fakeRepository) Claim(_ context.Context, tenant, application, id string, now time.Time) (Job, bool, error) {
+	if r.job.TenantID != tenant || r.job.ApplicationID != application || r.job.ID != id || r.job.Status != StatusQueued {
 		return Job{}, false, nil
 	}
 	r.job.Status = StatusRunning
@@ -73,14 +80,14 @@ func (r *fakeRepository) Claim(_ context.Context, tenant, id string, now time.Ti
 	r.job.StartedAt = &now
 	return r.job, true, nil
 }
-func (r *fakeRepository) EnsureRunning(_ context.Context, tenantID, id string) error {
-	if r.job.TenantID != tenantID || r.job.ID != id || r.job.Status != StatusRunning {
+func (r *fakeRepository) EnsureRunning(_ context.Context, tenantID, applicationID, id string) error {
+	if r.job.TenantID != tenantID || r.job.ApplicationID != applicationID || r.job.ID != id || r.job.Status != StatusRunning {
 		return ErrStaleVersion
 	}
 	return nil
 }
-func (r *fakeRepository) Progress(_ context.Context, tenantID, id string, rows, bytes int64, percent int32, _ time.Time) error {
-	if r.job.TenantID != tenantID || r.job.ID != id || r.job.Status != StatusRunning {
+func (r *fakeRepository) Progress(_ context.Context, tenantID, applicationID, id string, rows, bytes int64, percent int32, _ time.Time) error {
+	if r.job.TenantID != tenantID || r.job.ApplicationID != applicationID || r.job.ID != id || r.job.Status != StatusRunning {
 		return ErrStaleVersion
 	}
 	r.progress = append(r.progress, Progress{Rows: rows, Bytes: bytes})
@@ -139,9 +146,9 @@ func (r *fakeRepository) AddOutbox(_ context.Context, _ sqlx.ExtContext, event O
 func TestServiceCreateIsIdempotentAndWritesRequestedEvent(t *testing.T) {
 	repository := &fakeRepository{}
 	now := time.Date(2026, 8, 31, 10, 0, 0, 0, time.FixedZone("UTC+8", 8*3600))
-	service := &Service{repository: repository, transactor: fakeTransaction{}, now: func() time.Time { return now }, resultTTL: 7 * 24 * time.Hour}
+	service := &Service{repository: repository, transactor: fakeTransaction{}, now: func() time.Time { return now }, resultTTL: 7 * 24 * time.Hour, applications: allowAllApplications{}}
 	ctx := userContext("tenant-1")
-	input := CreateInput{TenantID: "tenant-1", DatasetCode: "billing.invoices", ProviderService: "billing-service", Format: "csv", Filename: "账单", QueryJSON: `{"status":"paid"}`, SelectedColumnsJSON: `["id"]`, IdempotencyKey: "request-1"}
+	input := CreateInput{TenantID: "tenant-1", ApplicationID: "application-1", DatasetCode: "billing.invoices", ProviderService: "billing-service", Format: "csv", Filename: "账单", QueryJSON: `{"status":"paid"}`, SelectedColumnsJSON: `["id"]`, IdempotencyKey: "request-1"}
 	job, duplicate, err := service.Create(ctx, input)
 	if err != nil || duplicate {
 		t.Fatalf("create duplicate=%v err=%v", duplicate, err)
@@ -162,9 +169,9 @@ func TestServiceCreateIsIdempotentAndWritesRequestedEvent(t *testing.T) {
 }
 func TestServiceRejectsIdempotencyKeyReuseWithDifferentPayload(t *testing.T) {
 	repository := &fakeRepository{}
-	service := &Service{repository: repository, transactor: fakeTransaction{}, now: time.Now}
+	service := &Service{repository: repository, transactor: fakeTransaction{}, now: time.Now, applications: allowAllApplications{}}
 	ctx := userContext("tenant-1")
-	input := CreateInput{TenantID: "tenant-1", DatasetCode: "users", ProviderService: "identity-service", Format: "csv", IdempotencyKey: "same"}
+	input := CreateInput{TenantID: "tenant-1", ApplicationID: "application-1", DatasetCode: "users", ProviderService: "identity-service", Format: "csv", IdempotencyKey: "same"}
 	if _, _, err := service.Create(ctx, input); err != nil {
 		t.Fatal(err)
 	}
@@ -175,30 +182,55 @@ func TestServiceRejectsIdempotencyKeyReuseWithDifferentPayload(t *testing.T) {
 		t.Fatalf("error=%v", err)
 	}
 }
+
+func TestServiceIdempotencyIsIsolatedByApplication(t *testing.T) {
+	repository := &fakeRepository{}
+	service := &Service{repository: repository, transactor: fakeTransaction{}, now: time.Now, applications: allowAllApplications{}}
+	input := CreateInput{TenantID: "tenant-1", ApplicationID: "application-1", DatasetCode: "users", ProviderService: "identity-service", Format: "csv", IdempotencyKey: "same"}
+	first, duplicate, err := service.Create(userContext("tenant-1"), input)
+	if err != nil || duplicate {
+		t.Fatalf("first Create() = (%+v, %v, %v)", first, duplicate, err)
+	}
+	input.ApplicationID = "application-2"
+	second, duplicate, err := service.Create(userContext("tenant-1"), input)
+	if err != nil || duplicate || first.ID == second.ID {
+		t.Fatalf("second Create() = (%+v, %v, %v), first=%+v", second, duplicate, err, first)
+	}
+}
 func TestServiceEnforcesTenantAndOptimisticCancel(t *testing.T) {
-	repository := &fakeRepository{job: Job{ID: "job-1", TenantID: "tenant-1", Status: StatusQueued, Version: 2}}
-	service := &Service{repository: repository, transactor: fakeTransaction{}, now: time.Now}
-	if _, err := service.Get(userContext("tenant-2"), "tenant-1", "job-1"); err == nil {
+	repository := &fakeRepository{job: Job{ID: "job-1", TenantID: "tenant-1", ApplicationID: "application-1", Status: StatusQueued, Version: 2}}
+	service := &Service{repository: repository, transactor: fakeTransaction{}, now: time.Now, applications: allowAllApplications{}}
+	if _, err := service.Get(userContext("tenant-2"), "tenant-1", "application-1", "job-1"); err == nil {
 		t.Fatal("cross tenant access accepted")
 	}
-	_, err := service.Cancel(userContext("tenant-1"), "tenant-1", "job-1", 1)
+	_, err := service.Cancel(userContext("tenant-1"), "tenant-1", "application-1", "job-1", 1)
 	if err == nil {
 		t.Fatal("stale cancel accepted")
 	}
-	job, err := service.Cancel(userContext("tenant-1"), "tenant-1", "job-1", 2)
+	job, err := service.Cancel(userContext("tenant-1"), "tenant-1", "application-1", "job-1", 2)
 	if err != nil || job.Status != StatusCanceled {
 		t.Fatalf("job=%+v err=%v", job, err)
 	}
 }
 func TestServiceValidatesJSONAndFilename(t *testing.T) {
-	service := &Service{repository: &fakeRepository{}, transactor: fakeTransaction{}, now: time.Now}
+	service := &Service{repository: &fakeRepository{}, transactor: fakeTransaction{}, now: time.Now, applications: allowAllApplications{}}
 	ctx := userContext("tenant-1")
-	_, _, err := service.Create(ctx, CreateInput{TenantID: "tenant-1", DatasetCode: "users", ProviderService: "identity-service", Format: "csv", Filename: "../../x", QueryJSON: "[]", IdempotencyKey: "key"})
+	_, _, err := service.Create(ctx, CreateInput{TenantID: "tenant-1", ApplicationID: "application-1", DatasetCode: "users", ProviderService: "identity-service", Format: "csv", Filename: "../../x", QueryJSON: "[]", IdempotencyKey: "key"})
 	if err == nil {
 		t.Fatal("invalid query accepted")
 	}
 	if got := safeFilename("../../secret", "users", "csv"); got != "secret.csv" {
 		t.Fatalf("filename=%q", got)
+	}
+}
+
+func TestServiceRejectsMissingApplicationGrant(t *testing.T) {
+	service := NewService(&fakeRepository{}, nil, nil, config.Config{})
+	service.applications = applicationVerifier{err: appaccess.ErrNotGranted}
+	_, _, err := service.Create(userContext("tenant-1"), CreateInput{TenantID: "tenant-1", ApplicationID: "application-1"})
+	var appErr *apperror.Error
+	if !errors.As(err, &appErr) || appErr.Code != apperror.CodeForbidden {
+		t.Fatalf("Create() error = %v", err)
 	}
 }
 func userContext(tenant string) context.Context {

@@ -5,6 +5,7 @@ package integration
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -49,7 +50,8 @@ func TestAsynchronousExportThroughJetStreamAndMinIO(t *testing.T) {
 	httpAddress, grpcAddress := freeAddress(t), freeAddress(t)
 	migrationPath, _ := filepath.Abs(filepath.Join("..", "migrations", "postgres"))
 	const psk = "integration-export-psk-0000000000000000"
-	cfg := config.Config{Runtime: config.Runtime{ActiveProfile: "integration"}, App: config.App{Name: "data-export-service", Env: "integration", ShutdownTimeout: 10 * time.Second}, HTTP: config.HTTP{Address: httpAddress, ReadTimeout: 5 * time.Second, WriteTimeout: 5 * time.Second, IdleTimeout: time.Minute, RequestTimeout: 5 * time.Second, MaxBodyBytes: 1 << 20}, GRPC: config.GRPC{Enabled: true, Address: grpcAddress, MaxReceiveBytes: 4 << 20}, Log: config.Log{Level: "error", Format: "json", File: filepath.Join(t.TempDir(), "app.log"), MaxSizeMB: 1, MaxBackups: 1, MaxAgeDays: 1}, Database: config.Database{Enabled: true, Type: "postgres", DSN: dsn, MaxOpenConns: 5, MaxIdleConns: 2, ConnMaxLifetime: time.Minute, ConnMaxIdleTime: time.Minute, PingTimeout: 10 * time.Second}, Migration: config.Migration{AutoUp: true, Path: migrationPath, DatabaseURL: dsn, Table: "async_export_schema_migrations"}, Health: config.Health{DatabaseTimeout: 2 * time.Second, RedisTimeout: 2 * time.Second}, JWT: config.JWT{Issuer: "integration", Secret: psk, TTL: time.Hour}, Auth: config.Auth{PSK: config.PSK{Enabled: true, Key: psk, HTTPPaths: []string{"/api/v1/exports/*"}}, SkipHTTPPaths: []string{"/api/v1/version"}, SkipGRPCMethods: []string{"/grpc.health.v1.Health/*"}}, Cron: config.Cron{Enabled: false, Timezone: "UTC"}, EventBus: config.EventBus{Enabled: true, URLs: []string{natsURL}, StreamName: "PLATFORM_EVENTS", Subjects: []string{"platform.>"}, Storage: "memory", MaxAge: time.Hour, DuplicateWindow: time.Minute, ConnectTimeout: 10 * time.Second, ReconnectWait: time.Second, PublishTimeout: 5 * time.Second, ConsumerAckWait: 2 * time.Minute, ConsumerMaxDeliver: 3, DispatchInterval: 20 * time.Millisecond, DispatchBatchSize: 10, DispatchLease: time.Minute, DispatchRetryDelay: 100 * time.Millisecond, PublishedRetention: time.Hour, CleanupInterval: time.Hour, CleanupBatchSize: 10}, Export: config.Export{BatchSize: 2, MaxRows: 100, MaxBytes: 1 << 20, JobTimeout: time.Minute, ResultTTL: time.Hour, WorkerCount: 1, ProgressEvery: 1}, ObjectStorage: config.ObjectStorage{Enabled: true, Endpoint: endpoint, AccessKey: accessKey, SecretKey: secretKey, Bucket: "platform-exports", PresignTTL: time.Minute}, Outbound: config.Outbound{GRPC: map[string]config.GRPCUpstream{"test-provider": {Target: providerAddress, Timeout: 5 * time.Second, Retry: config.Retry{MaxAttempts: 1, InitialBackoff: time.Millisecond, MaxBackoff: time.Millisecond}}}}}
+	applicationAddress := startAllowApplicationServer(t)
+	cfg := config.Config{Runtime: config.Runtime{ActiveProfile: "integration"}, App: config.App{Name: "data-export-service", Env: "integration", ShutdownTimeout: 10 * time.Second}, HTTP: config.HTTP{Address: httpAddress, ReadTimeout: 5 * time.Second, WriteTimeout: 5 * time.Second, IdleTimeout: time.Minute, RequestTimeout: 5 * time.Second, MaxBodyBytes: 1 << 20}, GRPC: config.GRPC{Enabled: true, Address: grpcAddress, MaxReceiveBytes: 4 << 20}, Log: config.Log{Level: "error", Format: "json", File: filepath.Join(t.TempDir(), "app.log"), MaxSizeMB: 1, MaxBackups: 1, MaxAgeDays: 1}, Database: config.Database{Enabled: true, Type: "postgres", DSN: dsn, MaxOpenConns: 5, MaxIdleConns: 2, ConnMaxLifetime: time.Minute, ConnMaxIdleTime: time.Minute, PingTimeout: 10 * time.Second}, Migration: config.Migration{AutoUp: true, Path: migrationPath, DatabaseURL: dsn, Table: "async_export_schema_migrations"}, Health: config.Health{DatabaseTimeout: 2 * time.Second, RedisTimeout: 2 * time.Second}, JWT: config.JWT{Issuer: "integration", Secret: psk, TTL: time.Hour}, Auth: config.Auth{PSK: config.PSK{Enabled: true, Key: psk, HTTPPaths: []string{"/api/v1/exports/*"}}, SkipHTTPPaths: []string{"/api/v1/version"}, SkipGRPCMethods: []string{"/grpc.health.v1.Health/*"}}, Cron: config.Cron{Enabled: false, Timezone: "UTC"}, EventBus: config.EventBus{Enabled: true, URLs: []string{natsURL}, StreamName: "PLATFORM_EVENTS", Subjects: []string{"platform.>"}, Storage: "memory", MaxAge: time.Hour, DuplicateWindow: time.Minute, ConnectTimeout: 10 * time.Second, ReconnectWait: time.Second, PublishTimeout: 5 * time.Second, ConsumerAckWait: 2 * time.Minute, ConsumerMaxDeliver: 3, DispatchInterval: 20 * time.Millisecond, DispatchBatchSize: 10, DispatchLease: time.Minute, DispatchRetryDelay: 100 * time.Millisecond, PublishedRetention: time.Hour, CleanupInterval: time.Hour, CleanupBatchSize: 10}, Export: config.Export{BatchSize: 2, MaxRows: 100, MaxBytes: 1 << 20, JobTimeout: time.Minute, ResultTTL: time.Hour, WorkerCount: 1, ProgressEvery: 1}, ObjectStorage: config.ObjectStorage{Enabled: true, Endpoint: endpoint, AccessKey: accessKey, SecretKey: secretKey, Bucket: "platform-exports", PresignTTL: time.Minute}, Outbound: config.Outbound{GRPC: map[string]config.GRPCUpstream{"application": {Target: applicationAddress, Timeout: 2 * time.Second}, "test-provider": {Target: providerAddress, Timeout: 5 * time.Second, Retry: config.Retry{MaxAttempts: 1, InitialBackoff: time.Millisecond, MaxBackoff: time.Millisecond}}}}}
 	application := app.New(cfg)
 	if err := application.Start(ctx); err != nil {
 		t.Fatal(err)
@@ -60,7 +62,7 @@ func TestAsynchronousExportThroughJetStreamAndMinIO(t *testing.T) {
 		_ = application.Stop(stopCtx)
 	})
 	baseURL := "http://" + httpAddress
-	body, _ := postJSONBody(t, baseURL+"/api/v1/exports/create", "PSK "+psk, "", `{"tenant_id":"tenant-1","dataset_code":"test.rows","provider_service":"test-provider","format":"csv","filename":"rows","selected_columns":["id","name"],"idempotency_key":"async-1"}`)
+	body, _ := postJSONBody(t, baseURL+"/api/v1/exports/create", "PSK "+psk, "", `{"tenant_id":"tenant-1","application_id":"application-1","dataset_code":"test.rows","provider_service":"test-provider","format":"csv","filename":"rows","selected_columns":["id","name"],"idempotency_key":"async-1"}`)
 	var created envelopeBody[struct {
 		Job struct {
 			ID string `json:"id"`
@@ -75,7 +77,7 @@ func TestAsynchronousExportThroughJetStreamAndMinIO(t *testing.T) {
 	var succeeded map[string]any
 	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
-		payload, _ := postJSONBody(t, baseURL+"/api/v1/exports/get", "PSK "+psk, "", `{"tenant_id":"tenant-1","id":"`+created.Body.Job.ID+`"}`)
+		payload, _ := postJSONBody(t, baseURL+"/api/v1/exports/get", "PSK "+psk, "", `{"tenant_id":"tenant-1","application_id":"application-1","id":"`+created.Body.Job.ID+`"}`)
 		var response envelopeBody[map[string]any]
 		if json.Unmarshal(payload, &response) == nil && response.Body["status"] == "succeeded" {
 			succeeded = response.Body
@@ -86,7 +88,7 @@ func TestAsynchronousExportThroughJetStreamAndMinIO(t *testing.T) {
 	if succeeded == nil {
 		t.Fatal("export job did not succeed")
 	}
-	downloadBody, statusCode := postJSONBody(t, baseURL+"/api/v1/exports/download", "PSK "+psk, "", `{"tenant_id":"tenant-1","id":"`+created.Body.Job.ID+`","ttl_seconds":30}`)
+	downloadBody, statusCode := postJSONBody(t, baseURL+"/api/v1/exports/download", "PSK "+psk, "", `{"tenant_id":"tenant-1","application_id":"application-1","id":"`+created.Body.Job.ID+`","ttl_seconds":30}`)
 	if statusCode != http.StatusOK {
 		t.Fatalf("download response=%s", downloadBody)
 	}
@@ -125,7 +127,10 @@ type testExportProvider struct {
 func (*testExportProvider) DescribeDataset(context.Context, *exportv1.DescribeDatasetRequest) (*exportv1.DescribeDatasetResponse, error) {
 	return &exportv1.DescribeDatasetResponse{Dataset: &exportv1.DatasetDescriptor{Code: "test.rows"}}, nil
 }
-func (*testExportProvider) StreamRows(_ *exportv1.StreamRowsRequest, stream exportv1.ExportProviderService_StreamRowsServer) error {
+func (*testExportProvider) StreamRows(request *exportv1.StreamRowsRequest, stream exportv1.ExportProviderService_StreamRowsServer) error {
+	if request.GetTenantId() != "tenant-1" || request.GetApplicationId() != "application-1" {
+		return fmt.Errorf("unexpected provider scope %q/%q", request.GetTenantId(), request.GetApplicationId())
+	}
 	one, _ := structpb.NewStruct(map[string]any{"id": "1", "name": "Alice"})
 	two, _ := structpb.NewStruct(map[string]any{"id": "2", "name": "Bob"})
 	return stream.Send(&exportv1.StreamRowsResponse{Columns: []*exportv1.ExportColumn{{Key: "id", Title: "ID"}, {Key: "name", Title: "Name"}}, Rows: []*structpb.Struct{one, two}, EstimatedTotalRows: 2, Done: true})

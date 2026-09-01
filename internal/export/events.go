@@ -11,7 +11,7 @@ import (
 
 func jobChangedEvent(job Job, change, actor string, at time.Time) (OutboxEvent, error) {
 	payload := &exportv1.ExportJobChangedEvent{Job: ToProto(job), ChangeType: change}
-	envelope, err := platformevents.NewEnvelope(platformevents.Metadata{EventID: uuid.NewString(), EventType: "platform.export.v1.ExportJobChanged", AggregateID: job.ID, AggregateType: "export_job", TenantID: job.TenantID, SchemaVersion: 1, ActorID: actor, OccurredAt: at}, payload)
+	envelope, err := platformevents.NewEnvelope(platformevents.Metadata{EventID: uuid.NewString(), EventType: "platform.export.v1.ExportJobChanged", AggregateID: job.ID, AggregateType: "export_job", TenantID: job.TenantID, ApplicationID: job.ApplicationID, SchemaVersion: 1, ActorID: actor, OccurredAt: at}, payload)
 	if err != nil {
 		return OutboxEvent{}, err
 	}

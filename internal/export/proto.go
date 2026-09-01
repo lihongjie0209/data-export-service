@@ -6,7 +6,7 @@ import (
 )
 
 func ToProto(value Job) *exportv1.ExportJob {
-	result := &exportv1.ExportJob{Id: value.ID, TenantId: value.TenantID, DatasetCode: value.DatasetCode, ProviderService: value.ProviderService, Format: value.Format, Filename: value.Filename, QueryJson: value.QueryJSON, SelectedColumnsJson: value.SelectedColumnsJSON, Status: value.Status, RowsExported: value.RowsExported, BytesWritten: value.BytesWritten, ProgressPercent: value.ProgressPercent, ObjectKey: value.ObjectKey, ContentType: value.ContentType, Checksum: value.Checksum, ErrorCode: value.ErrorCode, ErrorMessage: value.ErrorMessage, Version: value.Version, CreatedAt: timestamppb.New(value.CreatedAt), UpdatedAt: timestamppb.New(value.UpdatedAt), CreatedBy: value.CreatedBy, UpdatedBy: value.UpdatedBy}
+	result := &exportv1.ExportJob{Id: value.ID, TenantId: value.TenantID, ApplicationId: value.ApplicationID, DatasetCode: value.DatasetCode, ProviderService: value.ProviderService, Format: value.Format, Filename: value.Filename, QueryJson: value.QueryJSON, SelectedColumnsJson: value.SelectedColumnsJSON, Status: value.Status, RowsExported: value.RowsExported, BytesWritten: value.BytesWritten, ProgressPercent: value.ProgressPercent, ObjectKey: value.ObjectKey, ContentType: value.ContentType, Checksum: value.Checksum, ErrorCode: value.ErrorCode, ErrorMessage: value.ErrorMessage, Version: value.Version, CreatedAt: timestamppb.New(value.CreatedAt), UpdatedAt: timestamppb.New(value.UpdatedAt), CreatedBy: value.CreatedBy, UpdatedBy: value.UpdatedBy}
 	if value.StartedAt != nil {
 		result.StartedAt = timestamppb.New(*value.StartedAt)
 	}

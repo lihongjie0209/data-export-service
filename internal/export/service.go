@@ -18,6 +18,7 @@ import (
 	"github.com/lihongjie0209/data-export-service/internal/config"
 	"github.com/lihongjie0209/data-export-service/internal/database"
 	"github.com/lihongjie0209/data-export-service/internal/objectstorage"
+	"github.com/lihongjie0209/microservice-platform-go/appaccess"
 	platformprincipal "github.com/lihongjie0209/microservice-platform-go/principal"
 )
 
@@ -27,34 +28,48 @@ type transactionRunner interface {
 	Within(context.Context, *sql.TxOptions, func(*sqlx.Tx) error) error
 }
 type Service struct {
-	repository Repository
-	transactor transactionRunner
-	now        func() time.Time
-	resultTTL  time.Duration
-	storage    objectstorage.Storage
-	presignTTL time.Duration
+	repository   Repository
+	transactor   transactionRunner
+	now          func() time.Time
+	resultTTL    time.Duration
+	storage      objectstorage.Storage
+	presignTTL   time.Duration
+	applications appaccess.Verifier
 }
 
+type allowAllApplications struct{}
+
+func (allowAllApplications) Verify(context.Context, string, string) error { return nil }
+
 func NewService(repository Repository, transactor *database.Transactor, storage objectstorage.Storage, cfg config.Config) *Service {
-	return &Service{repository: repository, transactor: transactor, storage: storage, now: time.Now, resultTTL: cfg.Export.ResultTTL, presignTTL: cfg.ObjectStorage.PresignTTL}
+	return &Service{repository: repository, transactor: transactor, storage: storage, now: time.Now, resultTTL: cfg.Export.ResultTTL, presignTTL: cfg.ObjectStorage.PresignTTL, applications: allowAllApplications{}}
+}
+
+func NewRuntimeService(repository Repository, transactor *database.Transactor, storage objectstorage.Storage, cfg config.Config, applications appaccess.Verifier) (*Service, error) {
+	if applications == nil {
+		return nil, errors.New("application verifier is required")
+	}
+	service := NewService(repository, transactor, storage, cfg)
+	service.applications = applications
+	return service, nil
 }
 
 func (s *Service) Create(ctx context.Context, input CreateInput) (Job, bool, error) {
-	actor, err := authorize(ctx, input.TenantID)
+	actor, err := s.authorizeScope(ctx, input.TenantID, input.ApplicationID)
 	if err != nil {
 		return Job{}, false, err
 	}
-	input.TenantID, input.DatasetCode, input.ProviderService = normalize(input.TenantID), strings.ToLower(normalize(input.DatasetCode)), strings.ToLower(normalize(input.ProviderService))
+	input.TenantID, input.ApplicationID, input.DatasetCode, input.ProviderService = normalize(input.TenantID), normalize(input.ApplicationID), strings.ToLower(normalize(input.DatasetCode)), strings.ToLower(normalize(input.ProviderService))
 	input.Format, input.IdempotencyKey = strings.ToLower(normalize(input.Format)), normalize(input.IdempotencyKey)
-	if input.TenantID == "" || !codePattern.MatchString(input.DatasetCode) || !codePattern.MatchString(input.ProviderService) || !validFormat(input.Format) || input.IdempotencyKey == "" || len(input.IdempotencyKey) > 191 {
-		return Job{}, false, apperror.Invalid("tenant_id, dataset_code, provider_service, format, and idempotency_key are required", nil)
+	if input.TenantID == "" || input.ApplicationID == "" || !codePattern.MatchString(input.DatasetCode) || !codePattern.MatchString(input.ProviderService) || !validFormat(input.Format) || input.IdempotencyKey == "" || len(input.IdempotencyKey) > 191 {
+		return Job{}, false, apperror.Invalid("tenant_id, application_id, dataset_code, provider_service, format, and idempotency_key are required", nil)
 	}
 	if !validJSONObject(input.QueryJSON) || !validStringArray(input.SelectedColumnsJSON) {
 		return Job{}, false, apperror.Invalid("query_json must be an object and selected_columns_json must be a string array", nil)
 	}
 	now, id := s.now(), uuid.NewString()
 	filename := safeFilename(input.Filename, input.DatasetCode, input.Format)
-	value := Job{ID: id, TenantID: input.TenantID, DatasetCode: input.DatasetCode, ProviderService: input.ProviderService, Format: input.Format, Filename: filename, QueryJSON: defaultJSON(input.QueryJSON, "{}"), SelectedColumnsJSON: defaultJSON(input.SelectedColumnsJSON, "[]"), IdempotencyKey: input.IdempotencyKey, Status: StatusQueued, ObjectKey: fmt.Sprintf("%s/%s/%s", input.TenantID, now.Format("2006/01/02"), id+"."+input.Format), Version: 1, CreatedAt: now, UpdatedAt: now, CreatedBy: actor, UpdatedBy: actor}
+	value := Job{ID: id, TenantID: input.TenantID, ApplicationID: input.ApplicationID, DatasetCode: input.DatasetCode, ProviderService: input.ProviderService, Format: input.Format, Filename: filename, QueryJSON: defaultJSON(input.QueryJSON, "{}"), SelectedColumnsJSON: defaultJSON(input.SelectedColumnsJSON, "[]"), IdempotencyKey: input.IdempotencyKey, Status: StatusQueued, ObjectKey: fmt.Sprintf("%s/%s/%s/%s", input.TenantID, input.ApplicationID, now.Format("2006/01/02"), id+"."+input.Format), Version: 1, CreatedAt: now, UpdatedAt: now, CreatedBy: actor, UpdatedBy: actor}
 	created := false
 	err = s.transactor.Within(ctx, nil, func(tx *sqlx.Tx) error {
 		var e error
@@ -72,15 +87,15 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (Job, bool, err
 	})
 	return value, !created, translate(err)
 }
-func (s *Service) Get(ctx context.Context, tenantID, id string) (Job, error) {
-	if _, err := authorize(ctx, tenantID); err != nil {
+func (s *Service) Get(ctx context.Context, tenantID, applicationID, id string) (Job, error) {
+	if _, err := s.authorizeScope(ctx, tenantID, applicationID); err != nil {
 		return Job{}, err
 	}
-	value, err := s.repository.Get(ctx, normalize(tenantID), normalize(id))
+	value, err := s.repository.Get(ctx, normalize(tenantID), normalize(applicationID), normalize(id))
 	return value, translate(err)
 }
 func (s *Service) List(ctx context.Context, filter ListFilter) (Page, error) {
-	if _, err := authorize(ctx, filter.TenantID); err != nil {
+	if _, err := s.authorizeScope(ctx, filter.TenantID, filter.ApplicationID); err != nil {
 		return Page{}, err
 	}
 	if filter.Page < 1 {
@@ -93,13 +108,14 @@ func (s *Service) List(ctx context.Context, filter ListFilter) (Page, error) {
 		filter.PageSize = 200
 	}
 	filter.TenantID = normalize(filter.TenantID)
+	filter.ApplicationID = normalize(filter.ApplicationID)
 	filter.Status = strings.ToLower(normalize(filter.Status))
 	filter.DatasetCode = strings.ToLower(normalize(filter.DatasetCode))
 	page, err := s.repository.List(ctx, filter)
 	return page, translate(err)
 }
-func (s *Service) Cancel(ctx context.Context, tenantID, id string, expected int64) (Job, error) {
-	actor, err := authorize(ctx, tenantID)
+func (s *Service) Cancel(ctx context.Context, tenantID, applicationID, id string, expected int64) (Job, error) {
+	actor, err := s.authorizeScope(ctx, tenantID, applicationID)
 	if err != nil {
 		return Job{}, err
 	}
@@ -108,26 +124,26 @@ func (s *Service) Cancel(ctx context.Context, tenantID, id string, expected int6
 	}
 	now := s.now()
 	err = s.transactor.Within(ctx, nil, func(tx *sqlx.Tx) error {
-		if e := s.repository.Cancel(ctx, tx, normalize(tenantID), normalize(id), expected, actor, now); e != nil {
+		if e := s.repository.Cancel(ctx, tx, normalize(tenantID), normalize(applicationID), normalize(id), expected, actor, now); e != nil {
 			return e
 		}
-		value := Job{ID: id, TenantID: tenantID, Status: StatusCanceled, Version: expected + 1, UpdatedAt: now, UpdatedBy: actor}
+		value := Job{ID: id, TenantID: tenantID, ApplicationID: applicationID, Status: StatusCanceled, Version: expected + 1, UpdatedAt: now, UpdatedBy: actor}
 		return s.addEvent(ctx, tx, value, "canceled", actor, now)
 	})
 	if err != nil {
 		return Job{}, translate(err)
 	}
-	return s.Get(ctx, tenantID, id)
+	return s.Get(ctx, tenantID, applicationID, id)
 }
-func (s *Service) Retry(ctx context.Context, tenantID, id string, expected int64, key string) (Job, bool, error) {
-	actor, err := authorize(ctx, tenantID)
+func (s *Service) Retry(ctx context.Context, tenantID, applicationID, id string, expected int64, key string) (Job, bool, error) {
+	actor, err := s.authorizeScope(ctx, tenantID, applicationID)
 	if err != nil {
 		return Job{}, false, err
 	}
 	if expected < 1 || normalize(key) == "" {
 		return Job{}, false, apperror.Invalid("positive version and idempotency_key are required", nil)
 	}
-	current, err := s.repository.Get(ctx, normalize(tenantID), normalize(id))
+	current, err := s.repository.Get(ctx, normalize(tenantID), normalize(applicationID), normalize(id))
 	if err != nil {
 		return Job{}, false, translate(err)
 	}
@@ -150,12 +166,12 @@ func (s *Service) Retry(ctx context.Context, tenantID, id string, expected int64
 	if err != nil {
 		return Job{}, false, translate(err)
 	}
-	value, err := s.Get(ctx, tenantID, id)
+	value, err := s.Get(ctx, tenantID, applicationID, id)
 	return value, false, err
 }
 
-func (s *Service) CreateDownloadURL(ctx context.Context, tenantID, id string, ttl time.Duration) (*url.URL, time.Time, Job, error) {
-	job, err := s.Get(ctx, tenantID, id)
+func (s *Service) CreateDownloadURL(ctx context.Context, tenantID, applicationID, id string, ttl time.Duration) (*url.URL, time.Time, Job, error) {
+	job, err := s.Get(ctx, tenantID, applicationID, id)
 	if err != nil {
 		return nil, time.Time{}, Job{}, err
 	}
@@ -191,6 +207,24 @@ func authorize(ctx context.Context, tenantID string) (string, error) {
 		return "", apperror.New(apperror.CodeForbidden, "tenant access denied", 403, nil)
 	}
 	return p.ID, nil
+}
+
+func (s *Service) authorizeScope(ctx context.Context, tenantID, applicationID string) (string, error) {
+	actor, err := authorize(ctx, tenantID)
+	if err != nil {
+		return "", err
+	}
+	tenantID, applicationID = normalize(tenantID), normalize(applicationID)
+	if tenantID == "" || applicationID == "" {
+		return "", apperror.Invalid("tenant_id and application_id are required", nil)
+	}
+	if err := s.applications.Verify(ctx, tenantID, applicationID); err != nil {
+		if errors.Is(err, appaccess.ErrNotGranted) {
+			return "", apperror.New(apperror.CodeForbidden, "application access denied", 403, err)
+		}
+		return "", apperror.Unavailable("application authorization unavailable", err)
+	}
+	return actor, nil
 }
 func validFormat(value string) bool {
 	return value == FormatCSV || value == FormatJSONL || value == FormatXLSX

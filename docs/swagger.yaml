@@ -31,6 +31,8 @@ definitions:
     type: object
   httptransport.CreateExportRequest:
     properties:
+      application_id:
+        type: string
       dataset_code:
         type: string
       filename:
@@ -52,6 +54,8 @@ definitions:
     type: object
   httptransport.DownloadExportRequest:
     properties:
+      application_id:
+        type: string
       id:
         type: string
       tenant_id:
@@ -74,6 +78,8 @@ definitions:
     type: object
   httptransport.ExportJobBody:
     properties:
+      application_id:
+        type: string
       bytes_written:
         type: integer
       checksum:
@@ -149,6 +155,8 @@ definitions:
     type: object
   httptransport.GetExportRequest:
     properties:
+      application_id:
+        type: string
       id:
         type: string
       tenant_id:
@@ -156,6 +164,8 @@ definitions:
     type: object
   httptransport.ListExportsRequest:
     properties:
+      application_id:
+        type: string
       created_from:
         type: string
       created_to:
@@ -188,6 +198,8 @@ definitions:
     type: object
   httptransport.RetryExportRequest:
     properties:
+      application_id:
+        type: string
       id:
         type: string
       idempotency_key:
@@ -199,6 +211,8 @@ definitions:
     type: object
   httptransport.VersionedExportRequest:
     properties:
+      application_id:
+        type: string
       id:
         type: string
       tenant_id:

@@ -533,6 +533,9 @@
         "httptransport.CreateExportRequest": {
             "type": "object",
             "properties": {
+                "application_id": {
+                    "type": "string"
+                },
                 "dataset_code": {
                     "type": "string"
                 },
@@ -565,6 +568,9 @@
         "httptransport.DownloadExportRequest": {
             "type": "object",
             "properties": {
+                "application_id": {
+                    "type": "string"
+                },
                 "id": {
                     "type": "string"
                 },
@@ -599,6 +605,9 @@
         "httptransport.ExportJobBody": {
             "type": "object",
             "properties": {
+                "application_id": {
+                    "type": "string"
+                },
                 "bytes_written": {
                     "type": "integer"
                 },
@@ -713,6 +722,9 @@
         "httptransport.GetExportRequest": {
             "type": "object",
             "properties": {
+                "application_id": {
+                    "type": "string"
+                },
                 "id": {
                     "type": "string"
                 },
@@ -724,6 +736,9 @@
         "httptransport.ListExportsRequest": {
             "type": "object",
             "properties": {
+                "application_id": {
+                    "type": "string"
+                },
                 "created_from": {
                     "type": "string"
                 },
@@ -773,6 +788,9 @@
         "httptransport.RetryExportRequest": {
             "type": "object",
             "properties": {
+                "application_id": {
+                    "type": "string"
+                },
                 "id": {
                     "type": "string"
                 },
@@ -790,6 +808,9 @@
         "httptransport.VersionedExportRequest": {
             "type": "object",
             "properties": {
+                "application_id": {
+                    "type": "string"
+                },
                 "id": {
                     "type": "string"
                 },

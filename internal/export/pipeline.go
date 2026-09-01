@@ -19,9 +19,9 @@ var (
 )
 
 type StreamRequest struct {
-	TenantID, DatasetCode, QueryJSON, Cursor, SnapshotToken string
-	SelectedColumns                                         []string
-	BatchSize                                               int
+	TenantID, ApplicationID, DatasetCode, QueryJSON, Cursor, SnapshotToken string
+	SelectedColumns                                                        []string
+	BatchSize                                                              int
 }
 
 type Provider interface {
@@ -79,7 +79,7 @@ func (p *Pipeline) Run(ctx context.Context, job Job, selected []string, onProgre
 		var columns []Column
 		wroteHeader := false
 		lastReported := int64(0)
-		err = p.provider.Stream(groupCtx, job.ProviderService, StreamRequest{TenantID: job.TenantID, DatasetCode: job.DatasetCode, QueryJSON: job.QueryJSON, SelectedColumns: selected, BatchSize: p.batchSize}, func(batch Batch) error {
+		err = p.provider.Stream(groupCtx, job.ProviderService, StreamRequest{TenantID: job.TenantID, ApplicationID: job.ApplicationID, DatasetCode: job.DatasetCode, QueryJSON: job.QueryJSON, SelectedColumns: selected, BatchSize: p.batchSize}, func(batch Batch) error {
 			if !wroteHeader {
 				columns = batch.Columns
 				if len(columns) == 0 {

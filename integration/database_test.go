@@ -70,6 +70,17 @@ func TestRepositoryAndMigrations(t *testing.T) {
 			if exportTables != 1 {
 				t.Fatalf("export_jobs table count = %d", exportTables)
 			}
+			var applicationColumns int
+			if databaseType == "postgres" {
+				if err := db.GetContext(ctx, &applicationColumns, `SELECT count(*) FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'export_jobs' AND column_name = 'application_id' AND is_nullable = 'NO'`); err != nil {
+					t.Fatal(err)
+				}
+			} else if err := db.GetContext(ctx, &applicationColumns, `SELECT count(*) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'export_jobs' AND column_name = 'application_id' AND is_nullable = 'NO'`); err != nil {
+				t.Fatal(err)
+			}
+			if applicationColumns != 1 {
+				t.Fatalf("application scope column count = %d, want 1", applicationColumns)
+			}
 			if err := db.Close(); err != nil {
 				t.Fatal(err)
 			}

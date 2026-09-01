@@ -23,9 +23,9 @@ type Worker struct {
 func NewWorker(repository Repository, transactor transactionRunner, pipeline *Pipeline, storage objectstorage.Storage, timeout, resultTTL time.Duration) *Worker {
 	return &Worker{repository: repository, transactor: transactor, pipeline: pipeline, storage: storage, timeout: timeout, resultTTL: resultTTL, now: time.Now}
 }
-func (w *Worker) Process(ctx context.Context, tenantID, id string) error {
+func (w *Worker) Process(ctx context.Context, tenantID, applicationID, id string) error {
 	now := w.now()
-	job, claimed, err := w.repository.Claim(ctx, tenantID, id, now)
+	job, claimed, err := w.repository.Claim(ctx, tenantID, applicationID, id, now)
 	if err != nil || !claimed {
 		return err
 	}
@@ -37,13 +37,13 @@ func (w *Worker) Process(ctx context.Context, tenantID, id string) error {
 	defer cancel()
 	result, err := w.pipeline.Run(runCtx, job, selected, func(progress Progress) error {
 		if !progress.Checkpoint {
-			return w.repository.EnsureRunning(runCtx, job.TenantID, job.ID)
+			return w.repository.EnsureRunning(runCtx, job.TenantID, job.ApplicationID, job.ID)
 		}
 		percent := int32(0)
 		if progress.EstimatedRows > 0 {
 			percent = int32(min(int64(99), progress.Rows*100/progress.EstimatedRows))
 		}
-		return w.repository.Progress(runCtx, job.TenantID, job.ID, progress.Rows, progress.Bytes, percent, w.now())
+		return w.repository.Progress(runCtx, job.TenantID, job.ApplicationID, job.ID, progress.Rows, progress.Bytes, percent, w.now())
 	})
 	if err != nil {
 		return w.fail(ctx, job, errorCode(err), err)

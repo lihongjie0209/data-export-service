@@ -75,7 +75,7 @@ func (p *GRPCProvider) Stream(ctx context.Context, service string, request Strea
 	if err != nil {
 		return err
 	}
-	stream, err := client.StreamRows(ctx, &exportv1.StreamRowsRequest{TenantId: request.TenantID, DatasetCode: request.DatasetCode, QueryJson: request.QueryJSON, SelectedColumns: request.SelectedColumns, BatchSize: int32(request.BatchSize), Cursor: request.Cursor, SnapshotToken: request.SnapshotToken})
+	stream, err := client.StreamRows(ctx, &exportv1.StreamRowsRequest{TenantId: request.TenantID, ApplicationId: request.ApplicationID, DatasetCode: request.DatasetCode, QueryJson: request.QueryJSON, SelectedColumns: request.SelectedColumns, BatchSize: int32(request.BatchSize), Cursor: request.Cursor, SnapshotToken: request.SnapshotToken})
 	if err != nil {
 		p.failure(instance)
 		return err

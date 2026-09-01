@@ -20,11 +20,11 @@ type exportServer struct {
 }
 
 func (s *exportServer) CreateExportJob(ctx context.Context, r *exportv1.CreateExportJobRequest) (*exportv1.CreateExportJobResponse, error) {
-	value, duplicate, err := s.service.Create(ctx, platformexport.CreateInput{TenantID: r.GetTenantId(), DatasetCode: r.GetDatasetCode(), ProviderService: r.GetProviderService(), Format: r.GetFormat(), Filename: r.GetFilename(), QueryJSON: r.GetQueryJson(), SelectedColumnsJSON: r.GetSelectedColumnsJson(), IdempotencyKey: r.GetIdempotencyKey()})
+	value, duplicate, err := s.service.Create(ctx, platformexport.CreateInput{TenantID: r.GetTenantId(), ApplicationID: r.GetApplicationId(), DatasetCode: r.GetDatasetCode(), ProviderService: r.GetProviderService(), Format: r.GetFormat(), Filename: r.GetFilename(), QueryJSON: r.GetQueryJson(), SelectedColumnsJSON: r.GetSelectedColumnsJson(), IdempotencyKey: r.GetIdempotencyKey()})
 	return &exportv1.CreateExportJobResponse{Job: platformexport.ToProto(value), Duplicate: duplicate}, exportError(err)
 }
 func (s *exportServer) GetExportJob(ctx context.Context, r *exportv1.GetExportJobRequest) (*exportv1.GetExportJobResponse, error) {
-	value, err := s.service.Get(ctx, r.GetTenantId(), r.GetId())
+	value, err := s.service.Get(ctx, r.GetTenantId(), r.GetApplicationId(), r.GetId())
 	return &exportv1.GetExportJobResponse{Job: platformexport.ToProto(value)}, exportError(err)
 }
 func (s *exportServer) ListExportJobs(ctx context.Context, r *exportv1.ListExportJobsRequest) (*exportv1.ListExportJobsResponse, error) {
@@ -33,7 +33,7 @@ func (s *exportServer) ListExportJobs(ctx context.Context, r *exportv1.ListExpor
 		page = int32(r.GetPage().GetPage())
 		size = int32(r.GetPage().GetPageSize())
 	}
-	filter := platformexport.ListFilter{TenantID: r.GetTenantId(), Status: r.GetStatus(), DatasetCode: r.GetDatasetCode(), Page: page, PageSize: size}
+	filter := platformexport.ListFilter{TenantID: r.GetTenantId(), ApplicationID: r.GetApplicationId(), Status: r.GetStatus(), DatasetCode: r.GetDatasetCode(), Page: page, PageSize: size}
 	if r.GetCreatedFrom() != nil {
 		value := r.GetCreatedFrom().AsTime()
 		filter.CreatedFrom = &value
@@ -50,15 +50,15 @@ func (s *exportServer) ListExportJobs(ctx context.Context, r *exportv1.ListExpor
 	return &exportv1.ListExportJobsResponse{Jobs: items, Page: &commonv1.PageResult{Total: uint64(result.Total), Page: uint32(max(page, 1)), PageSize: uint32(normalizedSize(size))}}, exportError(err)
 }
 func (s *exportServer) CancelExportJob(ctx context.Context, r *exportv1.CancelExportJobRequest) (*exportv1.CancelExportJobResponse, error) {
-	value, err := s.service.Cancel(ctx, r.GetTenantId(), r.GetId(), r.GetVersion())
+	value, err := s.service.Cancel(ctx, r.GetTenantId(), r.GetApplicationId(), r.GetId(), r.GetVersion())
 	return &exportv1.CancelExportJobResponse{Job: platformexport.ToProto(value)}, exportError(err)
 }
 func (s *exportServer) RetryExportJob(ctx context.Context, r *exportv1.RetryExportJobRequest) (*exportv1.RetryExportJobResponse, error) {
-	value, duplicate, err := s.service.Retry(ctx, r.GetTenantId(), r.GetId(), r.GetVersion(), r.GetIdempotencyKey())
+	value, duplicate, err := s.service.Retry(ctx, r.GetTenantId(), r.GetApplicationId(), r.GetId(), r.GetVersion(), r.GetIdempotencyKey())
 	return &exportv1.RetryExportJobResponse{Job: platformexport.ToProto(value), Duplicate: duplicate}, exportError(err)
 }
 func (s *exportServer) CreateDownloadURL(ctx context.Context, r *exportv1.CreateDownloadURLRequest) (*exportv1.CreateDownloadURLResponse, error) {
-	value, expires, job, err := s.service.CreateDownloadURL(ctx, r.GetTenantId(), r.GetId(), time.Duration(r.GetTtlSeconds())*time.Second)
+	value, expires, job, err := s.service.CreateDownloadURL(ctx, r.GetTenantId(), r.GetApplicationId(), r.GetId(), time.Duration(r.GetTtlSeconds())*time.Second)
 	response := &exportv1.CreateDownloadURLResponse{}
 	if err == nil {
 		response.Url = value.String()

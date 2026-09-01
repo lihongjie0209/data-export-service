@@ -42,6 +42,7 @@ func New(cfg config.Config) *fx.App {
 		fx.Provide(idempotency.New),
 		fx.Provide(observability.NewMetrics),
 		outbound.Module,
+		fx.Provide(newApplicationVerifier),
 		fx.Provide(authorization.New),
 		ExportModule,
 		scheduler.Module,
@@ -130,4 +131,4 @@ func newWorker(repository platformexport.Repository, transactor *database.Transa
 	return platformexport.NewWorker(repository, transactor, pipeline, storage, cfg.Export.JobTimeout, cfg.Export.ResultTTL)
 }
 
-var ExportModule = fx.Module("export", fx.Provide(objectstorage.New, platformexport.NewRepository, platformexport.NewProvider, platformexport.NewService, newPipeline, newWorker))
+var ExportModule = fx.Module("export", fx.Provide(objectstorage.New, platformexport.NewRepository, platformexport.NewProvider, platformexport.NewRuntimeService, newPipeline, newWorker))

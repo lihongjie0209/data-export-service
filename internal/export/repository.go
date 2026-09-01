@@ -18,13 +18,13 @@ var (
 
 type Repository interface {
 	Create(context.Context, sqlx.ExtContext, Job) (Job, bool, error)
-	Get(context.Context, string, string) (Job, error)
+	Get(context.Context, string, string, string) (Job, error)
 	List(context.Context, ListFilter) (Page, error)
-	Cancel(context.Context, sqlx.ExtContext, string, string, int64, string, time.Time) error
+	Cancel(context.Context, sqlx.ExtContext, string, string, string, int64, string, time.Time) error
 	Retry(context.Context, sqlx.ExtContext, Job, int64) error
-	Claim(context.Context, string, string, time.Time) (Job, bool, error)
-	EnsureRunning(context.Context, string, string) error
-	Progress(context.Context, string, string, int64, int64, int32, time.Time) error
+	Claim(context.Context, string, string, string, time.Time) (Job, bool, error)
+	EnsureRunning(context.Context, string, string, string) error
+	Progress(context.Context, string, string, string, int64, int64, int32, time.Time) error
 	Succeed(context.Context, sqlx.ExtContext, Job) (Job, error)
 	Fail(context.Context, sqlx.ExtContext, Job) (Job, error)
 	ListExpired(context.Context, time.Time, int) ([]Job, error)
@@ -38,28 +38,28 @@ type SQLRepository struct{ db *sqlx.DB }
 
 func NewRepository(db *sqlx.DB) Repository { return &SQLRepository{db: db} }
 
-const jobColumns = "id,tenant_id,dataset_code,provider_service,format,filename,query_json,selected_columns_json,idempotency_key,status,rows_exported,bytes_written,progress_percent,object_key,content_type,checksum,error_code,error_message,started_at,completed_at,expires_at,version,created_at,updated_at,created_by,updated_by"
+const jobColumns = "id,tenant_id,application_id,dataset_code,provider_service,format,filename,query_json,selected_columns_json,idempotency_key,status,rows_exported,bytes_written,progress_percent,object_key,content_type,checksum,error_code,error_message,started_at,completed_at,expires_at,version,created_at,updated_at,created_by,updated_by"
 
 func (r *SQLRepository) Create(ctx context.Context, e sqlx.ExtContext, value Job) (Job, bool, error) {
 	var existing Job
-	err := sqlx.GetContext(ctx, e, &existing, r.db.Rebind("SELECT "+jobColumns+" FROM export_jobs WHERE tenant_id=? AND idempotency_key=? FOR UPDATE"), value.TenantID, value.IdempotencyKey)
+	err := sqlx.GetContext(ctx, e, &existing, r.db.Rebind("SELECT "+jobColumns+" FROM export_jobs WHERE tenant_id=? AND application_id=? AND idempotency_key=? FOR UPDATE"), value.TenantID, value.ApplicationID, value.IdempotencyKey)
 	if err == nil {
 		return existing, false, nil
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
 		return Job{}, false, err
 	}
-	args := []any{value.ID, value.TenantID, value.DatasetCode, value.ProviderService, value.Format, value.Filename, value.QueryJSON, value.SelectedColumnsJSON, value.IdempotencyKey, value.Status, value.RowsExported, value.BytesWritten, value.ProgressPercent, value.ObjectKey, value.ContentType, value.Checksum, value.ErrorCode, value.ErrorMessage, value.StartedAt, value.CompletedAt, value.ExpiresAt, value.Version, value.CreatedAt, value.UpdatedAt, value.CreatedBy, value.UpdatedBy}
-	_, err = e.ExecContext(ctx, r.db.Rebind("INSERT INTO export_jobs ("+jobColumns+") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"), args...)
+	args := []any{value.ID, value.TenantID, value.ApplicationID, value.DatasetCode, value.ProviderService, value.Format, value.Filename, value.QueryJSON, value.SelectedColumnsJSON, value.IdempotencyKey, value.Status, value.RowsExported, value.BytesWritten, value.ProgressPercent, value.ObjectKey, value.ContentType, value.Checksum, value.ErrorCode, value.ErrorMessage, value.StartedAt, value.CompletedAt, value.ExpiresAt, value.Version, value.CreatedAt, value.UpdatedAt, value.CreatedBy, value.UpdatedBy}
+	_, err = e.ExecContext(ctx, r.db.Rebind("INSERT INTO export_jobs ("+jobColumns+") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"), args...)
 	return value, true, err
 }
-func (r *SQLRepository) Get(ctx context.Context, tenantID, id string) (Job, error) {
+func (r *SQLRepository) Get(ctx context.Context, tenantID, applicationID, id string) (Job, error) {
 	var value Job
-	err := r.db.GetContext(ctx, &value, r.db.Rebind("SELECT "+jobColumns+" FROM export_jobs WHERE tenant_id=? AND id=?"), tenantID, id)
+	err := r.db.GetContext(ctx, &value, r.db.Rebind("SELECT "+jobColumns+" FROM export_jobs WHERE tenant_id=? AND application_id=? AND id=?"), tenantID, applicationID, id)
 	return value, notFound(err)
 }
 func (r *SQLRepository) List(ctx context.Context, filter ListFilter) (Page, error) {
-	where, args := "tenant_id=?", []any{filter.TenantID}
+	where, args := "tenant_id=? AND application_id=?", []any{filter.TenantID, filter.ApplicationID}
 	if filter.Status != "" {
 		where += " AND status=?"
 		args = append(args, filter.Status)
@@ -86,16 +86,16 @@ func (r *SQLRepository) List(ctx context.Context, filter ListFilter) (Page, erro
 	err := r.db.SelectContext(ctx, &items, r.db.Rebind("SELECT "+jobColumns+" FROM export_jobs WHERE "+where+" ORDER BY created_at DESC,id DESC LIMIT ? OFFSET ?"), pageArgs...)
 	return Page{Items: items, Total: total}, err
 }
-func (r *SQLRepository) Cancel(ctx context.Context, e sqlx.ExtContext, tenantID, id string, expected int64, actor string, now time.Time) error {
-	result, err := e.ExecContext(ctx, r.db.Rebind("UPDATE export_jobs SET status='canceled',completed_at=?,version=version+1,updated_at=?,updated_by=? WHERE tenant_id=? AND id=? AND version=? AND status IN ('queued','running')"), now, now, actor, tenantID, id, expected)
+func (r *SQLRepository) Cancel(ctx context.Context, e sqlx.ExtContext, tenantID, applicationID, id string, expected int64, actor string, now time.Time) error {
+	result, err := e.ExecContext(ctx, r.db.Rebind("UPDATE export_jobs SET status='canceled',completed_at=?,version=version+1,updated_at=?,updated_by=? WHERE tenant_id=? AND application_id=? AND id=? AND version=? AND status IN ('queued','running')"), now, now, actor, tenantID, applicationID, id, expected)
 	return optimistic(result, err)
 }
 func (r *SQLRepository) Retry(ctx context.Context, e sqlx.ExtContext, value Job, expected int64) error {
-	result, err := e.ExecContext(ctx, r.db.Rebind("UPDATE export_jobs SET status='queued',idempotency_key=?,rows_exported=0,bytes_written=0,progress_percent=0,content_type='',checksum='',error_code='',error_message='',started_at=NULL,completed_at=NULL,expires_at=NULL,version=version+1,updated_at=?,updated_by=? WHERE tenant_id=? AND id=? AND version=? AND status IN ('failed','canceled')"), value.IdempotencyKey, value.UpdatedAt, value.UpdatedBy, value.TenantID, value.ID, expected)
+	result, err := e.ExecContext(ctx, r.db.Rebind("UPDATE export_jobs SET status='queued',idempotency_key=?,rows_exported=0,bytes_written=0,progress_percent=0,content_type='',checksum='',error_code='',error_message='',started_at=NULL,completed_at=NULL,expires_at=NULL,version=version+1,updated_at=?,updated_by=? WHERE tenant_id=? AND application_id=? AND id=? AND version=? AND status IN ('failed','canceled')"), value.IdempotencyKey, value.UpdatedAt, value.UpdatedBy, value.TenantID, value.ApplicationID, value.ID, expected)
 	return optimistic(result, err)
 }
-func (r *SQLRepository) Claim(ctx context.Context, tenantID, id string, now time.Time) (Job, bool, error) {
-	result, err := r.db.ExecContext(ctx, r.db.Rebind("UPDATE export_jobs SET status='running',started_at=?,version=version+1,updated_at=?,updated_by='data-export-worker' WHERE tenant_id=? AND id=? AND status='queued'"), now, now, tenantID, id)
+func (r *SQLRepository) Claim(ctx context.Context, tenantID, applicationID, id string, now time.Time) (Job, bool, error) {
+	result, err := r.db.ExecContext(ctx, r.db.Rebind("UPDATE export_jobs SET status='running',started_at=?,version=version+1,updated_at=?,updated_by='data-export-worker' WHERE tenant_id=? AND application_id=? AND id=? AND status='queued'"), now, now, tenantID, applicationID, id)
 	if err != nil {
 		return Job{}, false, err
 	}
@@ -103,34 +103,34 @@ func (r *SQLRepository) Claim(ctx context.Context, tenantID, id string, now time
 	if err != nil || rows == 0 {
 		return Job{}, false, err
 	}
-	value, err := r.Get(ctx, tenantID, id)
+	value, err := r.Get(ctx, tenantID, applicationID, id)
 	return value, true, err
 }
-func (r *SQLRepository) EnsureRunning(ctx context.Context, tenantID, id string) error {
+func (r *SQLRepository) EnsureRunning(ctx context.Context, tenantID, applicationID, id string) error {
 	var marker int
-	err := r.db.GetContext(ctx, &marker, r.db.Rebind("SELECT 1 FROM export_jobs WHERE tenant_id=? AND id=? AND status='running'"), tenantID, id)
+	err := r.db.GetContext(ctx, &marker, r.db.Rebind("SELECT 1 FROM export_jobs WHERE tenant_id=? AND application_id=? AND id=? AND status='running'"), tenantID, applicationID, id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrStaleVersion
 	}
 	return err
 }
-func (r *SQLRepository) Progress(ctx context.Context, tenantID, id string, rows, bytes int64, percent int32, now time.Time) error {
-	result, err := r.db.ExecContext(ctx, r.db.Rebind("UPDATE export_jobs SET rows_exported=?,bytes_written=?,progress_percent=?,version=version+1,updated_at=?,updated_by='data-export-worker' WHERE tenant_id=? AND id=? AND status='running'"), rows, bytes, percent, now, tenantID, id)
+func (r *SQLRepository) Progress(ctx context.Context, tenantID, applicationID, id string, rows, bytes int64, percent int32, now time.Time) error {
+	result, err := r.db.ExecContext(ctx, r.db.Rebind("UPDATE export_jobs SET rows_exported=?,bytes_written=?,progress_percent=?,version=version+1,updated_at=?,updated_by='data-export-worker' WHERE tenant_id=? AND application_id=? AND id=? AND status='running'"), rows, bytes, percent, now, tenantID, applicationID, id)
 	return optimistic(result, err)
 }
 func (r *SQLRepository) Succeed(ctx context.Context, e sqlx.ExtContext, value Job) (Job, error) {
-	result, err := e.ExecContext(ctx, r.db.Rebind("UPDATE export_jobs SET status='succeeded',rows_exported=?,bytes_written=?,progress_percent=100,content_type=?,checksum=?,completed_at=?,expires_at=?,version=version+1,updated_at=?,updated_by=? WHERE tenant_id=? AND id=? AND status='running'"), value.RowsExported, value.BytesWritten, value.ContentType, value.Checksum, value.CompletedAt, value.ExpiresAt, value.UpdatedAt, value.UpdatedBy, value.TenantID, value.ID)
+	result, err := e.ExecContext(ctx, r.db.Rebind("UPDATE export_jobs SET status='succeeded',rows_exported=?,bytes_written=?,progress_percent=100,content_type=?,checksum=?,completed_at=?,expires_at=?,version=version+1,updated_at=?,updated_by=? WHERE tenant_id=? AND application_id=? AND id=? AND status='running'"), value.RowsExported, value.BytesWritten, value.ContentType, value.Checksum, value.CompletedAt, value.ExpiresAt, value.UpdatedAt, value.UpdatedBy, value.TenantID, value.ApplicationID, value.ID)
 	if err := optimistic(result, err); err != nil {
 		return Job{}, err
 	}
-	return r.get(ctx, e, value.TenantID, value.ID)
+	return r.get(ctx, e, value.TenantID, value.ApplicationID, value.ID)
 }
 func (r *SQLRepository) Fail(ctx context.Context, e sqlx.ExtContext, value Job) (Job, error) {
-	result, err := e.ExecContext(ctx, r.db.Rebind("UPDATE export_jobs SET status='failed',error_code=?,error_message=?,completed_at=?,version=version+1,updated_at=?,updated_by=? WHERE tenant_id=? AND id=? AND status='running'"), value.ErrorCode, value.ErrorMessage, value.CompletedAt, value.UpdatedAt, value.UpdatedBy, value.TenantID, value.ID)
+	result, err := e.ExecContext(ctx, r.db.Rebind("UPDATE export_jobs SET status='failed',error_code=?,error_message=?,completed_at=?,version=version+1,updated_at=?,updated_by=? WHERE tenant_id=? AND application_id=? AND id=? AND status='running'"), value.ErrorCode, value.ErrorMessage, value.CompletedAt, value.UpdatedAt, value.UpdatedBy, value.TenantID, value.ApplicationID, value.ID)
 	if err := optimistic(result, err); err != nil {
 		return Job{}, err
 	}
-	return r.get(ctx, e, value.TenantID, value.ID)
+	return r.get(ctx, e, value.TenantID, value.ApplicationID, value.ID)
 }
 func (r *SQLRepository) ListExpired(ctx context.Context, now time.Time, limit int) ([]Job, error) {
 	items := []Job{}
@@ -138,11 +138,11 @@ func (r *SQLRepository) ListExpired(ctx context.Context, now time.Time, limit in
 	return items, err
 }
 func (r *SQLRepository) Expire(ctx context.Context, e sqlx.ExtContext, value Job, now time.Time) (Job, error) {
-	result, err := e.ExecContext(ctx, r.db.Rebind("UPDATE export_jobs SET status='expired',version=version+1,updated_at=?,updated_by='data-export-cleaner' WHERE tenant_id=? AND id=? AND status='succeeded' AND expires_at IS NOT NULL AND expires_at<=?"), now, value.TenantID, value.ID, now)
+	result, err := e.ExecContext(ctx, r.db.Rebind("UPDATE export_jobs SET status='expired',version=version+1,updated_at=?,updated_by='data-export-cleaner' WHERE tenant_id=? AND application_id=? AND id=? AND status='succeeded' AND expires_at IS NOT NULL AND expires_at<=?"), now, value.TenantID, value.ApplicationID, value.ID, now)
 	if err := optimistic(result, err); err != nil {
 		return Job{}, err
 	}
-	return r.get(ctx, e, value.TenantID, value.ID)
+	return r.get(ctx, e, value.TenantID, value.ApplicationID, value.ID)
 }
 func (r *SQLRepository) ListExpiredMetadataBefore(ctx context.Context, before time.Time, limit int) ([]Job, error) {
 	items := []Job{}
@@ -150,7 +150,7 @@ func (r *SQLRepository) ListExpiredMetadataBefore(ctx context.Context, before ti
 	return items, err
 }
 func (r *SQLRepository) DeleteExpiredMetadata(ctx context.Context, e sqlx.ExtContext, value Job, before time.Time) (bool, error) {
-	result, err := e.ExecContext(ctx, r.db.Rebind("DELETE FROM export_jobs WHERE tenant_id=? AND id=? AND version=? AND status='expired' AND updated_at<?"), value.TenantID, value.ID, value.Version, before)
+	result, err := e.ExecContext(ctx, r.db.Rebind("DELETE FROM export_jobs WHERE tenant_id=? AND application_id=? AND id=? AND version=? AND status='expired' AND updated_at<?"), value.TenantID, value.ApplicationID, value.ID, value.Version, before)
 	if err != nil {
 		return false, err
 	}
@@ -180,9 +180,9 @@ func notFound(err error) error {
 	}
 	return err
 }
-func (r *SQLRepository) get(ctx context.Context, e sqlx.ExtContext, tenantID, id string) (Job, error) {
+func (r *SQLRepository) get(ctx context.Context, e sqlx.ExtContext, tenantID, applicationID, id string) (Job, error) {
 	var value Job
-	err := sqlx.GetContext(ctx, e, &value, r.db.Rebind("SELECT "+jobColumns+" FROM export_jobs WHERE tenant_id=? AND id=?"), tenantID, id)
+	err := sqlx.GetContext(ctx, e, &value, r.db.Rebind("SELECT "+jobColumns+" FROM export_jobs WHERE tenant_id=? AND application_id=? AND id=?"), tenantID, applicationID, id)
 	return value, notFound(err)
 }
 func normalize(value string) string { return strings.TrimSpace(value) }

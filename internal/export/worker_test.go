@@ -12,11 +12,11 @@ import (
 )
 
 func TestWorkerCompletesClaimedJob(t *testing.T) {
-	repository := &fakeRepository{job: Job{ID: "job-1", TenantID: "tenant-1", DatasetCode: "users", ProviderService: "identity-service", Format: FormatJSONL, SelectedColumnsJSON: `["id"]`, ObjectKey: "tenant-1/job-1.jsonl", Status: StatusQueued, Version: 1}}
+	repository := &fakeRepository{job: Job{ID: "job-1", TenantID: "tenant-1", ApplicationID: "application-1", DatasetCode: "users", ProviderService: "identity-service", Format: FormatJSONL, SelectedColumnsJSON: `["id"]`, ObjectKey: "tenant-1/application-1/job-1.jsonl", Status: StatusQueued, Version: 1}}
 	storage := &memoryStorage{}
 	provider := providerFunc(func(_ context.Context, _ string, request StreamRequest, receive func(Batch) error) error {
-		if request.BatchSize != 100 {
-			t.Fatalf("batch size=%d", request.BatchSize)
+		if request.BatchSize != 100 || request.ApplicationID != "application-1" {
+			t.Fatalf("stream request=%+v", request)
 		}
 		return receive(Batch{Columns: []Column{{Key: "id", Title: "ID"}}, Rows: []map[string]any{{"id": "u1"}}, EstimatedTotalRows: 1, Done: true})
 	})
@@ -24,7 +24,7 @@ func TestWorkerCompletesClaimedJob(t *testing.T) {
 	worker := NewWorker(repository, fakeTransaction{}, pipeline, storage, time.Minute, time.Hour)
 	fixed := time.Date(2026, 8, 31, 10, 0, 0, 0, time.FixedZone("UTC+8", 8*3600))
 	worker.now = func() time.Time { return fixed }
-	if err := worker.Process(context.Background(), "tenant-1", "job-1"); err != nil {
+	if err := worker.Process(context.Background(), "tenant-1", "application-1", "job-1"); err != nil {
 		t.Fatal(err)
 	}
 	if repository.job.Status != StatusSucceeded || repository.job.RowsExported != 1 || repository.job.Checksum == "" || repository.job.ExpiresAt == nil {
@@ -37,12 +37,12 @@ func TestWorkerCompletesClaimedJob(t *testing.T) {
 }
 
 func TestWorkerPersistsFailureAndDeletesPartialObject(t *testing.T) {
-	repository := &fakeRepository{job: Job{ID: "job-1", TenantID: "tenant-1", ProviderService: "source", Format: FormatCSV, SelectedColumnsJSON: `[]`, ObjectKey: "partial", Status: StatusQueued, Version: 1}}
+	repository := &fakeRepository{job: Job{ID: "job-1", TenantID: "tenant-1", ApplicationID: "application-1", ProviderService: "source", Format: FormatCSV, SelectedColumnsJSON: `[]`, ObjectKey: "partial", Status: StatusQueued, Version: 1}}
 	storage := &memoryStorage{}
 	sourceErr := errors.New("provider unavailable")
 	provider := providerFunc(func(context.Context, string, StreamRequest, func(Batch) error) error { return sourceErr })
 	worker := NewWorker(repository, fakeTransaction{}, NewPipeline(provider, storage, 10, 100, 1024, 10), storage, time.Minute, time.Hour)
-	err := worker.Process(context.Background(), "tenant-1", "job-1")
+	err := worker.Process(context.Background(), "tenant-1", "application-1", "job-1")
 	if !errors.Is(err, sourceErr) {
 		t.Fatalf("error=%v", err)
 	}
@@ -92,12 +92,12 @@ func TestWorkerPurgesOldExpiredMetadataUsingItsVersion(t *testing.T) {
 }
 
 func TestWorkerDoesNotRunUnclaimedJob(t *testing.T) {
-	repository := &fakeRepository{job: Job{ID: "job-1", TenantID: "tenant-1", Status: StatusCanceled}}
+	repository := &fakeRepository{job: Job{ID: "job-1", TenantID: "tenant-1", ApplicationID: "application-1", Status: StatusCanceled}}
 	called := false
 	provider := providerFunc(func(context.Context, string, StreamRequest, func(Batch) error) error { called = true; return nil })
 	storage := &memoryStorage{}
 	worker := NewWorker(repository, fakeTransaction{}, NewPipeline(provider, storage, 1, 1, 1, 1), storage, time.Second, time.Hour)
-	if err := worker.Process(context.Background(), "tenant-1", "job-1"); err != nil {
+	if err := worker.Process(context.Background(), "tenant-1", "application-1", "job-1"); err != nil {
 		t.Fatal(err)
 	}
 	if called {
@@ -106,14 +106,14 @@ func TestWorkerDoesNotRunUnclaimedJob(t *testing.T) {
 }
 
 func TestWorkerStopsAndKeepsCanceledStateWhenProgressUpdateLosesRunningState(t *testing.T) {
-	repository := &fakeRepository{job: Job{ID: "job-1", TenantID: "tenant-1", DatasetCode: "users", ProviderService: "identity-service", Format: FormatJSONL, SelectedColumnsJSON: `["id"]`, ObjectKey: "partial", Status: StatusQueued, Version: 1}}
+	repository := &fakeRepository{job: Job{ID: "job-1", TenantID: "tenant-1", ApplicationID: "application-1", DatasetCode: "users", ProviderService: "identity-service", Format: FormatJSONL, SelectedColumnsJSON: `["id"]`, ObjectKey: "partial", Status: StatusQueued, Version: 1}}
 	storage := &memoryStorage{}
 	provider := providerFunc(func(_ context.Context, _ string, _ StreamRequest, receive func(Batch) error) error {
 		repository.job.Status = StatusCanceled
 		return receive(Batch{Columns: []Column{{Key: "id", Title: "ID"}}, Rows: []map[string]any{{"id": "u1"}}})
 	})
 	worker := NewWorker(repository, fakeTransaction{}, NewPipeline(provider, storage, 10, 100, 1024, 100), storage, time.Minute, time.Hour)
-	err := worker.Process(context.Background(), "tenant-1", "job-1")
+	err := worker.Process(context.Background(), "tenant-1", "application-1", "job-1")
 	if !errors.Is(err, ErrStaleVersion) {
 		t.Fatalf("error=%v", err)
 	}
@@ -143,5 +143,8 @@ func assertEventJobVersion(t *testing.T, event OutboxEvent, want int64) {
 	}
 	if changed.GetJob().GetVersion() != want {
 		t.Fatalf("event job version=%d want=%d", changed.GetJob().GetVersion(), want)
+	}
+	if envelope.GetTenantId() != changed.GetJob().GetTenantId() || envelope.GetApplicationId() != changed.GetJob().GetApplicationId() || envelope.GetApplicationId() == "" {
+		t.Fatalf("event scope=%q/%q job=%q/%q", envelope.GetTenantId(), envelope.GetApplicationId(), changed.GetJob().GetTenantId(), changed.GetJob().GetApplicationId())
 	}
 }
