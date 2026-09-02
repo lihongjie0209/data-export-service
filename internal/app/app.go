@@ -131,4 +131,12 @@ func newWorker(repository platformexport.Repository, transactor *database.Transa
 	return platformexport.NewWorker(repository, transactor, pipeline, storage, cfg.Export.JobTimeout, cfg.Export.ResultTTL)
 }
 
-var ExportModule = fx.Module("export", fx.Provide(objectstorage.New, platformexport.NewRepository, platformexport.NewProvider, platformexport.NewRuntimeService, newPipeline, newWorker))
+var ExportModule = fx.Module("export", fx.Provide(
+	objectstorage.New,
+	platformexport.NewRepository,
+	fx.Annotate(platformexport.NewProvider, fx.As(new(platformexport.Provider)), fx.As(new(platformexport.CatalogProvider))),
+	platformexport.NewRuntimeService,
+	platformexport.NewRuntimeCatalog,
+	newPipeline,
+	newWorker,
+))

@@ -62,6 +62,8 @@ func NewServer(lc fx.Lifecycle, cfg config.Config, handler *Handler, authService
 	api.POST("/version", handler.Version)
 	api.POST("/me", handler.Me)
 	api.POST("/exports/create", handler.CreateExport)
+	api.POST("/exports/datasets/list", handler.ListExportDatasets)
+	api.POST("/exports/datasets/describe", handler.DescribeExportDataset)
 	api.POST("/exports/get", handler.GetExport)
 	api.POST("/exports/list", handler.ListExports)
 	api.POST("/exports/cancel", handler.CancelExport)

@@ -17,7 +17,7 @@ import (
 func TestExportGRPCRequirementCoversEveryBusinessMethod(t *testing.T) {
 	t.Parallel()
 	resolve := exportGRPCRequirement(true)
-	methods := []string{exportv1.ExportService_CreateExportJob_FullMethodName, exportv1.ExportService_GetExportJob_FullMethodName, exportv1.ExportService_ListExportJobs_FullMethodName, exportv1.ExportService_CancelExportJob_FullMethodName, exportv1.ExportService_RetryExportJob_FullMethodName, exportv1.ExportService_CreateDownloadURL_FullMethodName}
+	methods := []string{exportv1.ExportService_ListExportDatasets_FullMethodName, exportv1.ExportService_DescribeAvailableExportDataset_FullMethodName, exportv1.ExportService_CreateExportJob_FullMethodName, exportv1.ExportService_GetExportJob_FullMethodName, exportv1.ExportService_ListExportJobs_FullMethodName, exportv1.ExportService_CancelExportJob_FullMethodName, exportv1.ExportService_RetryExportJob_FullMethodName, exportv1.ExportService_CreateDownloadURL_FullMethodName}
 	for _, method := range methods {
 		requirement, ok := resolve(method)
 		if !ok || requirement.Resource == "" || requirement.Action == "" {

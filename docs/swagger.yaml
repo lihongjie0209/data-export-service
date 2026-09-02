@@ -52,6 +52,17 @@ definitions:
       tenant_id:
         type: string
     type: object
+  httptransport.DescribeExportDatasetRequest:
+    properties:
+      application_id:
+        type: string
+      dataset_code:
+        type: string
+      provider_service:
+        type: string
+      tenant_id:
+        type: string
+    type: object
   httptransport.DownloadExportRequest:
     properties:
       application_id:
@@ -62,6 +73,68 @@ definitions:
         type: string
       ttl_seconds:
         type: integer
+    type: object
+  httptransport.ExportColumnBody:
+    properties:
+      format:
+        type: string
+      key:
+        type: string
+      sensitive:
+        type: boolean
+      title:
+        type: string
+      type:
+        type: string
+    type: object
+  httptransport.ExportDatasetDescriptorBody:
+    properties:
+      code:
+        type: string
+      columns:
+        items:
+          $ref: '#/definitions/httptransport.ExportColumnBody'
+        type: array
+      estimated_rows:
+        type: integer
+      formats:
+        items:
+          type: string
+        type: array
+      supports_snapshot:
+        type: boolean
+      title:
+        type: string
+    type: object
+  httptransport.ExportDatasetPageBody:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/httptransport.ExportDatasetSummaryBody'
+        type: array
+      page:
+        type: integer
+      page_size:
+        type: integer
+      total:
+        type: integer
+    type: object
+  httptransport.ExportDatasetSummaryBody:
+    properties:
+      code:
+        type: string
+      formats:
+        items:
+          type: string
+        type: array
+      healthy_instances:
+        type: integer
+      provider_service:
+        type: string
+      supports_snapshot:
+        type: boolean
+      title:
+        type: string
     type: object
   httptransport.ExportDownloadBody:
     properties:
@@ -158,6 +231,19 @@ definitions:
       application_id:
         type: string
       id:
+        type: string
+      tenant_id:
+        type: string
+    type: object
+  httptransport.ListExportDatasetsRequest:
+    properties:
+      application_id:
+        type: string
+      page:
+        type: integer
+      page_size:
+        type: integer
+      search:
         type: string
       tenant_id:
         type: string
@@ -286,6 +372,64 @@ paths:
       summary: Create an asynchronous export job
       tags:
       - exports
+  /api/v1/exports/datasets/describe:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Dataset selector
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/httptransport.DescribeExportDatasetRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httptransport.Response'
+            - properties:
+                body:
+                  $ref: '#/definitions/httptransport.ExportDatasetDescriptorBody'
+              type: object
+      security:
+      - Bearer: []
+      - PSK: []
+      summary: Describe an export dataset available to an application
+      tags:
+      - export datasets
+  /api/v1/exports/datasets/list:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Application scope and search
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/httptransport.ListExportDatasetsRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httptransport.Response'
+            - properties:
+                body:
+                  $ref: '#/definitions/httptransport.ExportDatasetPageBody'
+              type: object
+      security:
+      - Bearer: []
+      - PSK: []
+      summary: List export datasets available to an application
+      tags:
+      - export datasets
   /api/v1/exports/download:
     post:
       consumes:

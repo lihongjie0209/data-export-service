@@ -25,7 +25,7 @@ func (a authorizationStub) Authorize(context.Context, platformprincipal.Principa
 
 func TestExportHTTPRequirementCoversEveryBusinessRoute(t *testing.T) {
 	t.Parallel()
-	for _, route := range []string{"/api/v1/exports/create", "/api/v1/exports/get", "/api/v1/exports/list", "/api/v1/exports/cancel", "/api/v1/exports/retry", "/api/v1/exports/download"} {
+	for _, route := range []string{"/api/v1/exports/datasets/list", "/api/v1/exports/datasets/describe", "/api/v1/exports/create", "/api/v1/exports/get", "/api/v1/exports/list", "/api/v1/exports/cancel", "/api/v1/exports/retry", "/api/v1/exports/download"} {
 		requirement, ok := exportHTTPRequirement(route)
 		if !ok || requirement.Resource == "" || requirement.Action == "" {
 			t.Fatalf("route %q requirement = %+v, %v", route, requirement, ok)

@@ -248,12 +248,14 @@ func Authorization(enabled bool, authorizer platformauthz.Authorizer, logger *sl
 
 func exportHTTPRequirement(route string) (platformauthz.Requirement, bool) {
 	requirements := map[string]platformauthz.Requirement{
-		"/api/v1/exports/create":   {Resource: "export.job", Action: "create", Scope: platformauthz.ScopePrincipal},
-		"/api/v1/exports/get":      {Resource: "export.job", Action: "read", Scope: platformauthz.ScopePrincipal},
-		"/api/v1/exports/list":     {Resource: "export.job", Action: "list", Scope: platformauthz.ScopePrincipal},
-		"/api/v1/exports/cancel":   {Resource: "export.job", Action: "cancel", Scope: platformauthz.ScopePrincipal},
-		"/api/v1/exports/retry":    {Resource: "export.job", Action: "retry", Scope: platformauthz.ScopePrincipal},
-		"/api/v1/exports/download": {Resource: "export.job", Action: "download", Scope: platformauthz.ScopePrincipal},
+		"/api/v1/exports/datasets/list":     {Resource: "export.dataset", Action: "list", Scope: platformauthz.ScopePrincipal},
+		"/api/v1/exports/datasets/describe": {Resource: "export.dataset", Action: "read", Scope: platformauthz.ScopePrincipal},
+		"/api/v1/exports/create":            {Resource: "export.job", Action: "create", Scope: platformauthz.ScopePrincipal},
+		"/api/v1/exports/get":               {Resource: "export.job", Action: "read", Scope: platformauthz.ScopePrincipal},
+		"/api/v1/exports/list":              {Resource: "export.job", Action: "list", Scope: platformauthz.ScopePrincipal},
+		"/api/v1/exports/cancel":            {Resource: "export.job", Action: "cancel", Scope: platformauthz.ScopePrincipal},
+		"/api/v1/exports/retry":             {Resource: "export.job", Action: "retry", Scope: platformauthz.ScopePrincipal},
+		"/api/v1/exports/download":          {Resource: "export.job", Action: "download", Scope: platformauthz.ScopePrincipal},
 	}
 	requirement, ok := requirements[route]
 	return requirement, ok

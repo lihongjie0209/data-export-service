@@ -46,8 +46,11 @@ type Job struct {
 }
 
 type Column struct {
-	Key, Title, Type, Format string
-	Sensitive                bool
+	Key       string `json:"key"`
+	Title     string `json:"title"`
+	Type      string `json:"type"`
+	Format    string `json:"format"`
+	Sensitive bool   `json:"sensitive"`
 }
 
 type Batch struct {

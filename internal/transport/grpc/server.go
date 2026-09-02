@@ -41,7 +41,7 @@ type Server struct {
 	logger  *slog.Logger
 }
 
-func NewServer(lc fx.Lifecycle, cfg config.Config, authService *auth.Service, authorizer platformauthz.Authorizer, healthService *apphealth.Service, exportService *platformexport.Service, metrics *observability.Metrics, logger *slog.Logger) (*Server, error) {
+func NewServer(lc fx.Lifecycle, cfg config.Config, authService *auth.Service, authorizer platformauthz.Authorizer, healthService *apphealth.Service, exportService *platformexport.Service, catalog *platformexport.Catalog, metrics *observability.Metrics, logger *slog.Logger) (*Server, error) {
 	options := []grpc.ServerOption{
 		grpc.MaxRecvMsgSize(cfg.GRPC.MaxReceiveBytes),
 		grpc.StatsHandler(otelgrpc.NewServerHandler()),
@@ -56,7 +56,7 @@ func NewServer(lc fx.Lifecycle, cfg config.Config, authService *auth.Service, au
 		options = append(options, grpc.Creds(creds))
 	}
 	grpcServer := grpc.NewServer(options...)
-	exportv1.RegisterExportServiceServer(grpcServer, &exportServer{service: exportService})
+	exportv1.RegisterExportServiceServer(grpcServer, &exportServer{service: exportService, catalog: catalog})
 	grpc_health_v1.RegisterHealthServer(grpcServer, &healthServer{health: healthService})
 	if cfg.GRPC.ReflectionEnabled {
 		reflection.Register(grpcServer)
@@ -72,12 +72,14 @@ func exportGRPCRequirement(enabled bool) platformauthz.GRPCResolver {
 			return platformauthz.Requirement{}, false
 		}
 		requirements := map[string]platformauthz.Requirement{
-			exportv1.ExportService_CreateExportJob_FullMethodName:   {Resource: "export.job", Action: "create", Scope: platformauthz.ScopePrincipal},
-			exportv1.ExportService_GetExportJob_FullMethodName:      {Resource: "export.job", Action: "read", Scope: platformauthz.ScopePrincipal},
-			exportv1.ExportService_ListExportJobs_FullMethodName:    {Resource: "export.job", Action: "list", Scope: platformauthz.ScopePrincipal},
-			exportv1.ExportService_CancelExportJob_FullMethodName:   {Resource: "export.job", Action: "cancel", Scope: platformauthz.ScopePrincipal},
-			exportv1.ExportService_RetryExportJob_FullMethodName:    {Resource: "export.job", Action: "retry", Scope: platformauthz.ScopePrincipal},
-			exportv1.ExportService_CreateDownloadURL_FullMethodName: {Resource: "export.job", Action: "download", Scope: platformauthz.ScopePrincipal},
+			exportv1.ExportService_ListExportDatasets_FullMethodName:             {Resource: "export.dataset", Action: "list", Scope: platformauthz.ScopePrincipal},
+			exportv1.ExportService_DescribeAvailableExportDataset_FullMethodName: {Resource: "export.dataset", Action: "read", Scope: platformauthz.ScopePrincipal},
+			exportv1.ExportService_CreateExportJob_FullMethodName:                {Resource: "export.job", Action: "create", Scope: platformauthz.ScopePrincipal},
+			exportv1.ExportService_GetExportJob_FullMethodName:                   {Resource: "export.job", Action: "read", Scope: platformauthz.ScopePrincipal},
+			exportv1.ExportService_ListExportJobs_FullMethodName:                 {Resource: "export.job", Action: "list", Scope: platformauthz.ScopePrincipal},
+			exportv1.ExportService_CancelExportJob_FullMethodName:                {Resource: "export.job", Action: "cancel", Scope: platformauthz.ScopePrincipal},
+			exportv1.ExportService_RetryExportJob_FullMethodName:                 {Resource: "export.job", Action: "retry", Scope: platformauthz.ScopePrincipal},
+			exportv1.ExportService_CreateDownloadURL_FullMethodName:              {Resource: "export.job", Action: "download", Scope: platformauthz.ScopePrincipal},
 		}
 		requirement, ok := requirements[method]
 		return requirement, ok

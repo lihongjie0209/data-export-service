@@ -16,10 +16,11 @@ type Handler struct {
 	logger  *slog.Logger
 	health  *health.Service
 	exports *platformexport.Service
+	catalog *platformexport.Catalog
 }
 
-func NewHandler(healthService *health.Service, exportService *platformexport.Service, logger *slog.Logger) *Handler {
-	return &Handler{health: healthService, exports: exportService, logger: logger}
+func NewHandler(healthService *health.Service, exportService *platformexport.Service, catalog *platformexport.Catalog, logger *slog.Logger) *Handler {
+	return &Handler{health: healthService, exports: exportService, catalog: catalog, logger: logger}
 }
 
 type MeResponseBody struct {
@@ -93,6 +94,103 @@ type CreateExportRequest struct {
 	SelectedColumns []string        `json:"selected_columns"`
 	IdempotencyKey  string          `json:"idempotency_key"`
 }
+type ListExportDatasetsRequest struct {
+	TenantID      string `json:"tenant_id"`
+	ApplicationID string `json:"application_id"`
+	Search        string `json:"search"`
+	Page          int32  `json:"page"`
+	PageSize      int32  `json:"page_size"`
+}
+type DescribeExportDatasetRequest struct {
+	TenantID        string `json:"tenant_id"`
+	ApplicationID   string `json:"application_id"`
+	ProviderService string `json:"provider_service"`
+	DatasetCode     string `json:"dataset_code"`
+}
+type ExportDatasetPageBody struct {
+	Items    []ExportDatasetSummaryBody `json:"items"`
+	Total    int64                      `json:"total"`
+	Page     int32                      `json:"page"`
+	PageSize int32                      `json:"page_size"`
+}
+type ExportDatasetSummaryBody struct {
+	ProviderService  string   `json:"provider_service"`
+	Code             string   `json:"code"`
+	Title            string   `json:"title"`
+	Formats          []string `json:"formats"`
+	SupportsSnapshot bool     `json:"supports_snapshot"`
+	HealthyInstances int32    `json:"healthy_instances"`
+}
+type ExportColumnBody struct {
+	Key       string `json:"key"`
+	Title     string `json:"title"`
+	Type      string `json:"type"`
+	Format    string `json:"format"`
+	Sensitive bool   `json:"sensitive"`
+}
+type ExportDatasetDescriptorBody struct {
+	Code             string             `json:"code"`
+	Title            string             `json:"title"`
+	Columns          []ExportColumnBody `json:"columns"`
+	Formats          []string           `json:"formats"`
+	EstimatedRows    int64              `json:"estimated_rows"`
+	SupportsSnapshot bool               `json:"supports_snapshot"`
+}
+
+// ListExportDatasets godoc
+// @Summary List export datasets available to an application
+// @Tags export datasets
+// @Accept json
+// @Produce json
+// @Security Bearer
+// @Security PSK
+// @Param request body ListExportDatasetsRequest true "Application scope and search"
+// @Success 200 {object} Response{body=ExportDatasetPageBody}
+// @Router /api/v1/exports/datasets/list [post]
+func (h *Handler) ListExportDatasets(c *gin.Context) {
+	var r ListExportDatasetsRequest
+	if !h.bind(c, &r) {
+		return
+	}
+	items, total, page, pageSize, err := h.catalog.List(c.Request.Context(), r.TenantID, r.ApplicationID, r.Search, r.Page, r.PageSize)
+	if err != nil {
+		Fail(c, h.logger, err)
+		return
+	}
+	body := make([]ExportDatasetSummaryBody, len(items))
+	for i, item := range items {
+		body[i] = ExportDatasetSummaryBody{ProviderService: item.ProviderService, Code: item.Code, Title: item.Title, Formats: item.Formats, SupportsSnapshot: item.SupportsSnapshot, HealthyInstances: item.HealthyInstances}
+	}
+	OK(c, ExportDatasetPageBody{Items: body, Total: total, Page: page, PageSize: pageSize})
+}
+
+// DescribeExportDataset godoc
+// @Summary Describe an export dataset available to an application
+// @Tags export datasets
+// @Accept json
+// @Produce json
+// @Security Bearer
+// @Security PSK
+// @Param request body DescribeExportDatasetRequest true "Dataset selector"
+// @Success 200 {object} Response{body=ExportDatasetDescriptorBody}
+// @Router /api/v1/exports/datasets/describe [post]
+func (h *Handler) DescribeExportDataset(c *gin.Context) {
+	var r DescribeExportDatasetRequest
+	if !h.bind(c, &r) {
+		return
+	}
+	value, err := h.catalog.Describe(c.Request.Context(), r.TenantID, r.ApplicationID, r.ProviderService, r.DatasetCode)
+	if err != nil {
+		Fail(c, h.logger, err)
+		return
+	}
+	columns := make([]ExportColumnBody, len(value.Columns))
+	for i, column := range value.Columns {
+		columns[i] = ExportColumnBody{Key: column.Key, Title: column.Title, Type: column.Type, Format: column.Format, Sensitive: column.Sensitive}
+	}
+	OK(c, ExportDatasetDescriptorBody{Code: value.Code, Title: value.Title, Columns: columns, Formats: value.Formats, EstimatedRows: value.EstimatedRows, SupportsSnapshot: value.SupportsSnapshot})
+}
+
 type GetExportRequest struct {
 	TenantID      string `json:"tenant_id"`
 	ApplicationID string `json:"application_id"`

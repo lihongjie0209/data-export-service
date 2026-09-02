@@ -17,6 +17,29 @@ import (
 type exportServer struct {
 	exportv1.UnimplementedExportServiceServer
 	service *platformexport.Service
+	catalog *platformexport.Catalog
+}
+
+func (s *exportServer) ListExportDatasets(ctx context.Context, r *exportv1.ListExportDatasetsRequest) (*exportv1.ListExportDatasetsResponse, error) {
+	var page, size int32
+	if r.GetPage() != nil {
+		page, size = int32(r.GetPage().GetPage()), int32(r.GetPage().GetPageSize())
+	}
+	values, total, page, size, err := s.catalog.List(ctx, r.GetTenantId(), r.GetApplicationId(), r.GetSearch(), page, size)
+	items := make([]*exportv1.ExportDatasetSummary, len(values))
+	for i, value := range values {
+		items[i] = &exportv1.ExportDatasetSummary{ProviderService: value.ProviderService, Code: value.Code, Title: value.Title, Formats: value.Formats, SupportsSnapshot: value.SupportsSnapshot, HealthyInstances: value.HealthyInstances}
+	}
+	return &exportv1.ListExportDatasetsResponse{Datasets: items, Page: &commonv1.PageResult{Total: uint64(total), Page: uint32(page), PageSize: uint32(size)}}, exportError(err)
+}
+
+func (s *exportServer) DescribeAvailableExportDataset(ctx context.Context, r *exportv1.DescribeAvailableExportDatasetRequest) (*exportv1.DescribeAvailableExportDatasetResponse, error) {
+	value, err := s.catalog.Describe(ctx, r.GetTenantId(), r.GetApplicationId(), r.GetProviderService(), r.GetDatasetCode())
+	columns := make([]*exportv1.ExportColumn, len(value.Columns))
+	for i, column := range value.Columns {
+		columns[i] = &exportv1.ExportColumn{Key: column.Key, Title: column.Title, Type: column.Type, Format: column.Format, Sensitive: column.Sensitive}
+	}
+	return &exportv1.DescribeAvailableExportDatasetResponse{Dataset: &exportv1.DatasetDescriptor{Code: value.Code, Title: value.Title, Columns: columns, Formats: value.Formats, EstimatedRows: value.EstimatedRows, SupportsSnapshot: value.SupportsSnapshot}}, exportError(err)
 }
 
 func (s *exportServer) CreateExportJob(ctx context.Context, r *exportv1.CreateExportJobRequest) (*exportv1.CreateExportJobResponse, error) {

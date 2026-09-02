@@ -7,7 +7,9 @@ import (
 	"testing"
 
 	"github.com/lihongjie0209/data-export-service/internal/config"
+	"github.com/lihongjie0209/microservice-platform-go/exportprovider"
 	exportv1 "github.com/lihongjie0209/platform-protos/gen/go/platform/export/v1"
+	registryv1 "github.com/lihongjie0209/platform-protos/gen/go/platform/registry/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -15,6 +17,26 @@ import (
 type fakeRowStream struct {
 	responses []*exportv1.StreamRowsResponse
 	err       error
+}
+
+func TestSummarizeDatasetsCombinesHealthyProviderReplicas(t *testing.T) {
+	t.Parallel()
+	metadata, err := exportprovider.Metadata([]exportprovider.Dataset{{Code: "billing.invoices", Title: "Invoices", Formats: []string{"csv"}, SupportsSnapshot: true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	instances := []*registryv1.ServiceInstance{
+		{ServiceName: "billing-service", InstanceId: "one", Metadata: metadata},
+		{ServiceName: "billing-service", InstanceId: "two", Metadata: metadata},
+		{ServiceName: "broken-service", InstanceId: "three", Metadata: map[string]string{"platform.export.provider": "true"}},
+	}
+	values := summarizeDatasets(instances, "invoice")
+	if len(values) != 1 || values[0].HealthyInstances != 2 || values[0].ProviderService != "billing-service" || !values[0].SupportsSnapshot {
+		t.Fatalf("values = %+v", values)
+	}
+	if values := summarizeDatasets(instances, "missing"); len(values) != 0 {
+		t.Fatalf("values = %+v", values)
+	}
 }
 
 func (s *fakeRowStream) Recv() (*exportv1.StreamRowsResponse, error) {
