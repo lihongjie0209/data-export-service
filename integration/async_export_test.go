@@ -124,8 +124,11 @@ type testExportProvider struct {
 	exportv1.UnimplementedExportProviderServiceServer
 }
 
-func (*testExportProvider) DescribeDataset(context.Context, *exportv1.DescribeDatasetRequest) (*exportv1.DescribeDatasetResponse, error) {
-	return &exportv1.DescribeDatasetResponse{Dataset: &exportv1.DatasetDescriptor{Code: "test.rows"}}, nil
+func (*testExportProvider) DescribeDataset(_ context.Context, request *exportv1.DescribeDatasetRequest) (*exportv1.DescribeDatasetResponse, error) {
+	return &exportv1.DescribeDatasetResponse{Dataset: &exportv1.DatasetDescriptor{
+		Code: request.GetDatasetCode(), Formats: []string{"csv", "jsonl"},
+		Columns: []*exportv1.ExportColumn{{Key: "id", Title: "ID"}, {Key: "name", Title: "Name"}},
+	}}, nil
 }
 func (*testExportProvider) StreamRows(request *exportv1.StreamRowsRequest, stream exportv1.ExportProviderService_StreamRowsServer) error {
 	if request.GetTenantId() != "tenant-1" || request.GetApplicationId() != "application-1" {

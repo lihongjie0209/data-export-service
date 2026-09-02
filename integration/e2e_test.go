@@ -61,6 +61,7 @@ func TestHTTPAndGRPCEndToEnd(t *testing.T) {
 	grpcAddress := freeAddress(t)
 	const secret = "01234567890123456789012345678901"
 	applicationAddress := startAllowApplicationServer(t)
+	providerAddress := startExportProvider(t)
 	cfg := config.Config{
 		Runtime:       config.Runtime{ActiveProfile: "integration"},
 		App:           config.App{Name: "integration", Env: "integration", ShutdownTimeout: 10 * time.Second},
@@ -79,7 +80,10 @@ func TestHTTPAndGRPCEndToEnd(t *testing.T) {
 		Idempotency:   config.Idempotency{Enabled: true, ProcessingTTL: 30 * time.Second, ResultTTL: time.Hour, FailureTTL: time.Minute},
 		Export:        config.Export{BatchSize: 100, MaxRows: 1000, MaxBytes: 1 << 20, JobTimeout: time.Minute, ResultTTL: time.Hour, WorkerCount: 1, ProgressEvery: 100},
 		ObjectStorage: config.ObjectStorage{PresignTTL: time.Minute},
-		Outbound:      config.Outbound{GRPC: map[string]config.GRPCUpstream{"application": {Target: applicationAddress, Timeout: 2 * time.Second}}},
+		Outbound: config.Outbound{GRPC: map[string]config.GRPCUpstream{
+			"application":     {Target: applicationAddress, Timeout: 2 * time.Second},
+			"billing-service": {Target: providerAddress, Timeout: 2 * time.Second},
+		}},
 	}
 	application := app.New(cfg)
 	if err := application.Start(ctx); err != nil {
