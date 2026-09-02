@@ -21,6 +21,8 @@ import (
 	registryv1 "github.com/lihongjie0209/platform-protos/gen/go/platform/registry/v1"
 	"go.uber.org/fx"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type providerConnection struct {
@@ -75,20 +77,58 @@ func (p *GRPCProvider) Stream(ctx context.Context, service string, request Strea
 	if err != nil {
 		return err
 	}
-	stream, err := client.StreamRows(ctx, &exportv1.StreamRowsRequest{TenantId: request.TenantID, ApplicationId: request.ApplicationID, DatasetCode: request.DatasetCode, QueryJson: request.QueryJSON, SelectedColumns: request.SelectedColumns, BatchSize: int32(request.BatchSize), Cursor: request.Cursor, SnapshotToken: request.SnapshotToken})
+	retry := p.config.Retry
+	failed, err := streamRows(ctx, request, retry, func(ctx context.Context, request *exportv1.StreamRowsRequest) (rowStream, error) {
+		return client.StreamRows(ctx, request)
+	}, receive)
 	if err != nil {
-		p.failure(instance)
+		if failed {
+			p.failure(instance)
+		}
 		return err
 	}
-	for {
-		response, recvErr := stream.Recv()
-		if recvErr == io.EOF {
-			p.success(instance)
-			return nil
+	p.success(instance)
+	return nil
+}
+
+type rowStream interface {
+	Recv() (*exportv1.StreamRowsResponse, error)
+}
+
+type openRowStream func(context.Context, *exportv1.StreamRowsRequest) (rowStream, error)
+
+// streamRows resumes only after a batch has been accepted by the consumer. This
+// makes the next cursor the commit point and prevents writing a batch twice.
+func streamRows(ctx context.Context, request StreamRequest, retry config.Retry, open openRowStream, receive func(Batch) error) (bool, error) {
+	value := &exportv1.StreamRowsRequest{TenantId: request.TenantID, ApplicationId: request.ApplicationID, DatasetCode: request.DatasetCode, QueryJson: request.QueryJSON, SelectedColumns: request.SelectedColumns, BatchSize: int32(request.BatchSize), Cursor: request.Cursor, SnapshotToken: request.SnapshotToken}
+	maxAttempts := max(1, retry.MaxAttempts)
+	delivered := false
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		stream, err := open(ctx, value)
+		if err == nil {
+			err = receiveRows(stream, value, receive, &delivered)
 		}
-		if recvErr != nil {
-			p.failure(instance)
-			return recvErr
+		if err == nil || errors.Is(err, io.EOF) {
+			return false, nil
+		}
+		if !retryableStreamError(err) || (delivered && value.GetCursor() == "") {
+			return retryableStreamError(err), err
+		}
+		if attempt == maxAttempts {
+			return true, err
+		}
+		if err := waitStreamRetry(ctx, retry, attempt); err != nil {
+			return false, err
+		}
+	}
+	return true, errors.New("export provider retry budget exhausted")
+}
+
+func receiveRows(stream rowStream, request *exportv1.StreamRowsRequest, receive func(Batch) error, delivered *bool) error {
+	for {
+		response, err := stream.Recv()
+		if err != nil {
+			return err
 		}
 		columns := make([]Column, len(response.GetColumns()))
 		for i, value := range response.GetColumns() {
@@ -101,10 +141,32 @@ func (p *GRPCProvider) Stream(ctx context.Context, service string, request Strea
 		if err := receive(Batch{Columns: columns, Rows: rows, NextCursor: response.GetNextCursor(), SnapshotToken: response.GetSnapshotToken(), EstimatedTotalRows: response.GetEstimatedTotalRows(), Done: response.GetDone()}); err != nil {
 			return err
 		}
+		*delivered = true
+		request.Cursor = response.GetNextCursor()
+		request.SnapshotToken = response.GetSnapshotToken()
 		if response.GetDone() {
-			p.success(instance)
 			return nil
 		}
+	}
+}
+
+func retryableStreamError(err error) bool {
+	code := status.Code(err)
+	return code == codes.Unavailable || code == codes.ResourceExhausted
+}
+
+func waitStreamRetry(ctx context.Context, retry config.Retry, attempt int) error {
+	delay := retry.InitialBackoff << (attempt - 1)
+	if retry.MaxBackoff > 0 && delay > retry.MaxBackoff {
+		delay = retry.MaxBackoff
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
 	}
 }
 
