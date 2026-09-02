@@ -224,6 +224,33 @@ func TestServiceValidatesJSONAndFilename(t *testing.T) {
 	}
 }
 
+func TestServiceValidatesExportAgainstProviderDescriptor(t *testing.T) {
+	t.Parallel()
+	descriptor := DatasetDescriptor{Code: "billing.invoices", Formats: []string{"csv"}, Columns: []Column{{Key: "id"}, {Key: "number"}}}
+	for _, test := range []struct {
+		name     string
+		format   string
+		columns  string
+		provider *catalogProviderStub
+		code     int
+	}{
+		{name: "unsupported format", format: "xlsx", columns: `["id"]`, provider: &catalogProviderStub{descriptor: descriptor}, code: apperror.CodeInvalidArgument},
+		{name: "unknown column", format: "csv", columns: `["secret"]`, provider: &catalogProviderStub{descriptor: descriptor}, code: apperror.CodeInvalidArgument},
+		{name: "duplicate column", format: "csv", columns: `["id","id"]`, provider: &catalogProviderStub{descriptor: descriptor}, code: apperror.CodeInvalidArgument},
+		{name: "provider unavailable", format: "csv", columns: `["id"]`, provider: &catalogProviderStub{err: errors.New("offline")}, code: apperror.CodeDependencyUnavailable},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			service := &Service{applications: allowAllApplications{}, catalog: test.provider, now: time.Now}
+			_, _, err := service.Create(userContext("tenant-1"), CreateInput{TenantID: "tenant-1", ApplicationID: "application-1", DatasetCode: "billing.invoices", ProviderService: "billing-service", Format: test.format, QueryJSON: `{}`, SelectedColumnsJSON: test.columns, IdempotencyKey: "key"})
+			var appErr *apperror.Error
+			if !errors.As(err, &appErr) || appErr.Code != test.code {
+				t.Fatalf("error = %#v", err)
+			}
+		})
+	}
+}
+
 func TestServiceRejectsMissingApplicationGrant(t *testing.T) {
 	service := NewService(&fakeRepository{}, nil, nil, config.Config{})
 	service.applications = applicationVerifier{err: appaccess.ErrNotGranted}

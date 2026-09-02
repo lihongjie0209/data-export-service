@@ -35,6 +35,7 @@ type Service struct {
 	storage      objectstorage.Storage
 	presignTTL   time.Duration
 	applications appaccess.Verifier
+	catalog      CatalogProvider
 }
 
 type allowAllApplications struct{}
@@ -45,12 +46,16 @@ func NewService(repository Repository, transactor *database.Transactor, storage 
 	return &Service{repository: repository, transactor: transactor, storage: storage, now: time.Now, resultTTL: cfg.Export.ResultTTL, presignTTL: cfg.ObjectStorage.PresignTTL, applications: allowAllApplications{}}
 }
 
-func NewRuntimeService(repository Repository, transactor *database.Transactor, storage objectstorage.Storage, cfg config.Config, applications appaccess.Verifier) (*Service, error) {
+func NewRuntimeService(repository Repository, transactor *database.Transactor, storage objectstorage.Storage, cfg config.Config, applications appaccess.Verifier, catalog CatalogProvider) (*Service, error) {
 	if applications == nil {
 		return nil, errors.New("application verifier is required")
 	}
+	if catalog == nil {
+		return nil, errors.New("export dataset catalog provider is required")
+	}
 	service := NewService(repository, transactor, storage, cfg)
 	service.applications = applications
+	service.catalog = catalog
 	return service, nil
 }
 
@@ -66,6 +71,9 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (Job, bool, err
 	}
 	if !validJSONObject(input.QueryJSON) || !validStringArray(input.SelectedColumnsJSON) {
 		return Job{}, false, apperror.Invalid("query_json must be an object and selected_columns_json must be a string array", nil)
+	}
+	if err := s.validateDataset(ctx, input); err != nil {
+		return Job{}, false, err
 	}
 	now, id := s.now(), uuid.NewString()
 	filename := safeFilename(input.Filename, input.DatasetCode, input.Format)
@@ -86,6 +94,49 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (Job, bool, err
 		return s.addEvent(ctx, tx, value, "requested", actor, now)
 	})
 	return value, !created, translate(err)
+}
+
+func (s *Service) validateDataset(ctx context.Context, input CreateInput) error {
+	if s.catalog == nil {
+		return nil
+	}
+	value, err := s.catalog.DescribeDataset(ctx, input.TenantID, input.ApplicationID, input.ProviderService, input.DatasetCode)
+	if err != nil {
+		return apperror.Unavailable("export dataset descriptor is unavailable", err)
+	}
+	if value.Code != input.DatasetCode || !contains(value.Formats, input.Format) {
+		return apperror.Invalid("dataset does not support the requested format", nil)
+	}
+	var selected []string
+	if normalize(input.SelectedColumnsJSON) != "" {
+		if err := json.Unmarshal([]byte(input.SelectedColumnsJSON), &selected); err != nil {
+			return apperror.Invalid("selected_columns_json must be a string array", err)
+		}
+	}
+	available := make(map[string]struct{}, len(value.Columns))
+	for _, column := range value.Columns {
+		available[column.Key] = struct{}{}
+	}
+	seen := make(map[string]struct{}, len(selected))
+	for _, column := range selected {
+		if _, ok := available[column]; !ok {
+			return apperror.Invalid("selected_columns_json contains a column not exposed by the dataset", nil)
+		}
+		if _, duplicate := seen[column]; duplicate {
+			return apperror.Invalid("selected_columns_json contains duplicate columns", nil)
+		}
+		seen[column] = struct{}{}
+	}
+	return nil
+}
+
+func contains(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
 }
 func (s *Service) Get(ctx context.Context, tenantID, applicationID, id string) (Job, error) {
 	if _, err := s.authorizeScope(ctx, tenantID, applicationID); err != nil {
