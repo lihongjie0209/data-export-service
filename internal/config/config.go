@@ -655,11 +655,8 @@ func (c Config) Validate() error {
 	if c.Export.BatchSize < 1 || c.Export.BatchSize > 10000 || c.Export.MaxRows < 1 || c.Export.MaxBytes < 1 || c.Export.JobTimeout <= 0 || c.Export.ResultTTL <= 0 || c.Export.WorkerCount < 1 || c.Export.WorkerCount > 32 || c.Export.ProgressEvery < 1 {
 		return errors.New("export requires valid batch_size, limits, timeouts, worker_count, and progress_every")
 	}
-	if c.ObjectStorage.Enabled && (c.ObjectStorage.Endpoint == "" || c.ObjectStorage.AccessKey == "" || c.ObjectStorage.SecretKey == "" || c.ObjectStorage.Bucket == "" || c.ObjectStorage.PresignTTL <= 0) {
-		return errors.New("enabled object_storage requires endpoint, credentials, bucket, and positive presign_ttl")
-	}
-	if c.ObjectStorage.Enabled && c.ObjectStorage.PresignEndpoint != "" && c.ObjectStorage.Region == "" {
-		return errors.New("object_storage.region is required with presign_endpoint")
+	if err := validateObjectStoragePolicy(c.ObjectStorage, c.App.Env == "production"); err != nil {
+		return err
 	}
 	if c.ServiceRegistry.Enabled {
 		if c.ServiceRegistry.Target == "" || len(c.ServiceRegistry.PSK) < 32 || c.ServiceRegistry.MaxStale <= 0 || c.ServiceRegistry.SnapshotDirectory == "" || len(c.ProviderClient.PSK) < 32 || len(c.ProviderClient.AllowedDNSSuffixes) == 0 || c.ProviderClient.Timeout <= 0 || c.ProviderClient.FailureCooldown <= 0 {
@@ -687,6 +684,22 @@ func (c Config) Validate() error {
 		if err := validateClientPolicy(name, upstream.Auth, upstream.Retry, upstream.Breaker, upstream.TLS, c.App.Env == "production"); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func validateObjectStoragePolicy(storage ObjectStorage, production bool) error {
+	if !storage.Enabled {
+		return nil
+	}
+	if storage.Endpoint == "" || storage.AccessKey == "" || storage.SecretKey == "" || storage.Bucket == "" || storage.PresignTTL <= 0 {
+		return errors.New("enabled object_storage requires endpoint, credentials, bucket, and positive presign_ttl")
+	}
+	if storage.PresignEndpoint != "" && storage.Region == "" {
+		return errors.New("object_storage.region is required with presign_endpoint")
+	}
+	if production && (!storage.UseSSL || (storage.PresignEndpoint != "" && !storage.PresignUseSSL)) {
+		return errors.New("production object_storage and presigned URLs require TLS")
 	}
 	return nil
 }
