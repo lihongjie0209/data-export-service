@@ -28,8 +28,9 @@ type Storage interface {
 }
 
 type S3 struct {
-	client *minio.Client
-	cfg    config.ObjectStorage
+	client        *minio.Client
+	presignClient *minio.Client
+	cfg           config.ObjectStorage
 }
 
 func New(cfg config.Config) (Storage, error) {
@@ -45,7 +46,18 @@ func New(cfg config.Config) (Storage, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &S3{client: client, cfg: c}, nil
+	presignClient := client
+	if c.PresignEndpoint != "" && (c.PresignEndpoint != c.Endpoint || c.PresignUseSSL != c.UseSSL) {
+		presignClient, err = minio.New(c.PresignEndpoint, &minio.Options{
+			Creds:  credentials.NewStaticV4(c.AccessKey, c.SecretKey, ""),
+			Secure: c.PresignUseSSL,
+			Region: c.Region,
+		})
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &S3{client: client, presignClient: presignClient, cfg: c}, nil
 }
 
 func (s *S3) Enabled() bool  { return s != nil && s.cfg.Enabled }
@@ -75,5 +87,5 @@ func (s *S3) PresignDownload(ctx context.Context, key string, ttl time.Duration)
 	if ttl <= 0 || ttl > s.cfg.PresignTTL {
 		ttl = s.cfg.PresignTTL
 	}
-	return s.client.PresignedGetObject(ctx, s.cfg.Bucket, key, ttl, nil)
+	return s.presignClient.PresignedGetObject(ctx, s.cfg.Bucket, key, ttl, nil)
 }

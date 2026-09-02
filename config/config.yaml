@@ -155,11 +155,13 @@ export:
 object_storage:
   enabled: false
   endpoint: 127.0.0.1:9000
+  presign_endpoint: ""
   access_key: ""
   secret_key: ""
   bucket: platform-exports
   region: ""
   use_ssl: false
+  presign_use_ssl: false
   presign_ttl: 15m
 
 service_registry:
