@@ -97,6 +97,8 @@ type rowStream interface {
 
 type openRowStream func(context.Context, *exportv1.StreamRowsRequest) (rowStream, error)
 
+var errProviderStreamIncomplete = errors.New("export provider stream ended before the final batch")
+
 // streamRows resumes only after a batch has been accepted by the consumer. This
 // makes the next cursor the commit point and prevents writing a batch twice.
 func streamRows(ctx context.Context, request StreamRequest, retry config.Retry, open openRowStream, receive func(Batch) error) (bool, error) {
@@ -108,7 +110,7 @@ func streamRows(ctx context.Context, request StreamRequest, retry config.Retry, 
 		if err == nil {
 			err = receiveRows(stream, value, receive, &delivered)
 		}
-		if err == nil || errors.Is(err, io.EOF) {
+		if err == nil {
 			return false, nil
 		}
 		if !retryableStreamError(err) || (delivered && value.GetCursor() == "") {
@@ -127,6 +129,9 @@ func streamRows(ctx context.Context, request StreamRequest, retry config.Retry, 
 func receiveRows(stream rowStream, request *exportv1.StreamRowsRequest, receive func(Batch) error, delivered *bool) error {
 	for {
 		response, err := stream.Recv()
+		if errors.Is(err, io.EOF) {
+			return errProviderStreamIncomplete
+		}
 		if err != nil {
 			return err
 		}
@@ -151,6 +156,9 @@ func receiveRows(stream rowStream, request *exportv1.StreamRowsRequest, receive 
 }
 
 func retryableStreamError(err error) bool {
+	if errors.Is(err, errProviderStreamIncomplete) {
+		return true
+	}
 	code := status.Code(err)
 	return code == codes.Unavailable || code == codes.ResourceExhausted
 }

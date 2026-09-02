@@ -91,6 +91,34 @@ func TestStreamRowsReportsProviderFailureOnlyAfterRetryExhaustion(t *testing.T) 
 	}
 }
 
+func TestStreamRowsTreatsEOFBeforeDoneAsRetryableTruncation(t *testing.T) {
+	t.Parallel()
+	var opened int
+	failed, err := streamRows(context.Background(), StreamRequest{}, config.Retry{MaxAttempts: 2}, func(_ context.Context, request *exportv1.StreamRowsRequest) (rowStream, error) {
+		opened++
+		if opened == 1 {
+			return &fakeRowStream{responses: []*exportv1.StreamRowsResponse{{NextCursor: "cursor-1"}}}, nil
+		}
+		if request.GetCursor() != "cursor-1" {
+			t.Fatalf("resume cursor = %q", request.GetCursor())
+		}
+		return &fakeRowStream{responses: []*exportv1.StreamRowsResponse{{Done: true}}}, nil
+	}, func(Batch) error { return nil })
+	if err != nil || failed || opened != 2 {
+		t.Fatalf("failed = %v, err = %v, opened = %d", failed, err, opened)
+	}
+}
+
+func TestStreamRowsRejectsTruncationWithoutResumeCursor(t *testing.T) {
+	t.Parallel()
+	failed, err := streamRows(context.Background(), StreamRequest{}, config.Retry{MaxAttempts: 3}, func(context.Context, *exportv1.StreamRowsRequest) (rowStream, error) {
+		return &fakeRowStream{responses: []*exportv1.StreamRowsResponse{{}}}, nil
+	}, func(Batch) error { return nil })
+	if !failed || !errors.Is(err, errProviderStreamIncomplete) {
+		t.Fatalf("failed = %v, err = %v", failed, err)
+	}
+}
+
 func TestStreamRowsDoesNotRetryConsumerFailure(t *testing.T) {
 	t.Parallel()
 	want := errors.New("storage unavailable")
