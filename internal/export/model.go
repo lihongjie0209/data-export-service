@@ -53,6 +53,16 @@ type Column struct {
 	Sensitive bool   `json:"sensitive"`
 }
 
+type QueryField struct {
+	Key         string   `json:"key"`
+	Title       string   `json:"title"`
+	Type        string   `json:"type"`
+	Format      string   `json:"format"`
+	Description string   `json:"description"`
+	Options     []string `json:"options"`
+	Required    bool     `json:"required"`
+}
+
 type Batch struct {
 	Columns            []Column
 	Rows               []map[string]any

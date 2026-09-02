@@ -109,8 +109,12 @@ func (p *GRPCProvider) DescribeDataset(ctx context.Context, tenantID, applicatio
 	for i, column := range value.GetColumns() {
 		columns[i] = Column{Key: column.GetKey(), Title: column.GetTitle(), Type: column.GetType(), Format: column.GetFormat(), Sensitive: column.GetSensitive()}
 	}
+	queryFields := make([]QueryField, len(value.GetQueryFields()))
+	for i, field := range value.GetQueryFields() {
+		queryFields[i] = QueryField{Key: field.GetKey(), Title: field.GetTitle(), Type: field.GetType(), Format: field.GetFormat(), Description: field.GetDescription(), Options: field.GetOptions(), Required: field.GetRequired()}
+	}
 	p.success(instance)
-	return DatasetDescriptor{Code: value.GetCode(), Title: value.GetTitle(), Columns: columns, Formats: value.GetFormats(), EstimatedRows: value.GetEstimatedRows(), SupportsSnapshot: value.GetSupportsSnapshot()}, nil
+	return DatasetDescriptor{Code: value.GetCode(), Title: value.GetTitle(), Columns: columns, QueryFields: queryFields, Formats: value.GetFormats(), EstimatedRows: value.GetEstimatedRows(), SupportsSnapshot: value.GetSupportsSnapshot()}, nil
 }
 
 func summarizeDatasets(instances []*registryv1.ServiceInstance, search string) []DatasetSummary {

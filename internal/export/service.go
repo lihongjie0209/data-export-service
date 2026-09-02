@@ -107,6 +107,9 @@ func (s *Service) validateDataset(ctx context.Context, input CreateInput) error 
 	if value.Code != input.DatasetCode || !contains(value.Formats, input.Format) {
 		return apperror.Invalid("dataset does not support the requested format", nil)
 	}
+	if err := validateQuery(input.QueryJSON, value.QueryFields); err != nil {
+		return err
+	}
 	var selected []string
 	if normalize(input.SelectedColumnsJSON) != "" {
 		if err := json.Unmarshal([]byte(input.SelectedColumnsJSON), &selected); err != nil {
@@ -126,6 +129,77 @@ func (s *Service) validateDataset(ctx context.Context, input CreateInput) error 
 			return apperror.Invalid("selected_columns_json contains duplicate columns", nil)
 		}
 		seen[column] = struct{}{}
+	}
+	return nil
+}
+
+func validateQuery(raw string, fields []QueryField) error {
+	values := map[string]json.RawMessage{}
+	if normalize(raw) != "" {
+		if err := json.Unmarshal([]byte(raw), &values); err != nil {
+			return apperror.Invalid("query_json must be an object", err)
+		}
+	}
+	available := make(map[string]QueryField, len(fields))
+	for _, field := range fields {
+		key := normalize(field.Key)
+		if key == "" {
+			continue
+		}
+		field.Key = key
+		available[key] = field
+		if field.Required {
+			if _, ok := values[key]; !ok {
+				return apperror.Invalid("query_json is missing a required field", nil)
+			}
+		}
+	}
+	for key, rawValue := range values {
+		field, ok := available[key]
+		if !ok {
+			return apperror.Invalid("query_json contains a field not exposed by the dataset", nil)
+		}
+		if err := validateQueryValue(rawValue, field); err != nil {
+			return apperror.Invalid("query_json contains an invalid field value", err)
+		}
+	}
+	return nil
+}
+
+func validateQueryValue(raw json.RawMessage, field QueryField) error {
+	var value any
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return err
+	}
+	switch field.Type {
+	case "string", "datetime":
+		text, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("%s must be a string", field.Key)
+		}
+		if field.Type == "datetime" && text != "" {
+			if _, err := time.Parse(time.RFC3339, text); err != nil {
+				return fmt.Errorf("%s must be RFC3339: %w", field.Key, err)
+			}
+		}
+		if len(field.Options) > 0 && !contains(field.Options, text) {
+			return fmt.Errorf("%s is not an allowed option", field.Key)
+		}
+	case "integer":
+		number, ok := value.(float64)
+		if !ok || number != float64(int64(number)) {
+			return fmt.Errorf("%s must be an integer", field.Key)
+		}
+	case "number":
+		if _, ok := value.(float64); !ok {
+			return fmt.Errorf("%s must be a number", field.Key)
+		}
+	case "boolean":
+		if _, ok := value.(bool); !ok {
+			return fmt.Errorf("%s must be a boolean", field.Key)
+		}
+	default:
+		return fmt.Errorf("%s has unsupported type %q", field.Key, field.Type)
 	}
 	return nil
 }

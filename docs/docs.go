@@ -749,6 +749,12 @@ const docTemplate = `{
                         "type": "string"
                     }
                 },
+                "query_fields": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/httptransport.ExportQueryFieldBody"
+                    }
+                },
                 "supports_snapshot": {
                     "type": "boolean"
                 },
@@ -937,6 +943,35 @@ const docTemplate = `{
                 },
                 "total": {
                     "type": "integer"
+                }
+            }
+        },
+        "httptransport.ExportQueryFieldBody": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "format": {
+                    "type": "string"
+                },
+                "key": {
+                    "type": "string"
+                },
+                "options": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "required": {
+                    "type": "boolean"
+                },
+                "title": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
                 }
             }
         },

@@ -101,6 +101,10 @@ definitions:
         items:
           type: string
         type: array
+      query_fields:
+        items:
+          $ref: '#/definitions/httptransport.ExportQueryFieldBody'
+        type: array
       supports_snapshot:
         type: boolean
       title:
@@ -225,6 +229,25 @@ definitions:
         type: integer
       total:
         type: integer
+    type: object
+  httptransport.ExportQueryFieldBody:
+    properties:
+      description:
+        type: string
+      format:
+        type: string
+      key:
+        type: string
+      options:
+        items:
+          type: string
+        type: array
+      required:
+        type: boolean
+      title:
+        type: string
+      type:
+        type: string
     type: object
   httptransport.GetExportRequest:
     properties:

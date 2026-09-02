@@ -226,28 +226,52 @@ func TestServiceValidatesJSONAndFilename(t *testing.T) {
 
 func TestServiceValidatesExportAgainstProviderDescriptor(t *testing.T) {
 	t.Parallel()
-	descriptor := DatasetDescriptor{Code: "billing.invoices", Formats: []string{"csv"}, Columns: []Column{{Key: "id"}, {Key: "number"}}}
+	descriptor := DatasetDescriptor{
+		Code: "billing.invoices", Formats: []string{"csv"}, Columns: []Column{{Key: "id"}, {Key: "number"}},
+		QueryFields: []QueryField{{Key: "status", Type: "string", Options: []string{"draft", "paid"}}, {Key: "created_from", Type: "datetime"}},
+	}
 	for _, test := range []struct {
 		name     string
 		format   string
+		query    string
 		columns  string
 		provider *catalogProviderStub
 		code     int
 	}{
-		{name: "unsupported format", format: "xlsx", columns: `["id"]`, provider: &catalogProviderStub{descriptor: descriptor}, code: apperror.CodeInvalidArgument},
-		{name: "unknown column", format: "csv", columns: `["secret"]`, provider: &catalogProviderStub{descriptor: descriptor}, code: apperror.CodeInvalidArgument},
-		{name: "duplicate column", format: "csv", columns: `["id","id"]`, provider: &catalogProviderStub{descriptor: descriptor}, code: apperror.CodeInvalidArgument},
-		{name: "provider unavailable", format: "csv", columns: `["id"]`, provider: &catalogProviderStub{err: errors.New("offline")}, code: apperror.CodeDependencyUnavailable},
+		{name: "unsupported format", format: "xlsx", query: `{}`, columns: `["id"]`, provider: &catalogProviderStub{descriptor: descriptor}, code: apperror.CodeInvalidArgument},
+		{name: "unknown column", format: "csv", query: `{}`, columns: `["secret"]`, provider: &catalogProviderStub{descriptor: descriptor}, code: apperror.CodeInvalidArgument},
+		{name: "duplicate column", format: "csv", query: `{}`, columns: `["id","id"]`, provider: &catalogProviderStub{descriptor: descriptor}, code: apperror.CodeInvalidArgument},
+		{name: "unknown query field", format: "csv", query: `{"secret":"x"}`, columns: `["id"]`, provider: &catalogProviderStub{descriptor: descriptor}, code: apperror.CodeInvalidArgument},
+		{name: "invalid query option", format: "csv", query: `{"status":"unknown"}`, columns: `["id"]`, provider: &catalogProviderStub{descriptor: descriptor}, code: apperror.CodeInvalidArgument},
+		{name: "invalid query type", format: "csv", query: `{"status":1}`, columns: `["id"]`, provider: &catalogProviderStub{descriptor: descriptor}, code: apperror.CodeInvalidArgument},
+		{name: "invalid query datetime", format: "csv", query: `{"created_from":"yesterday"}`, columns: `["id"]`, provider: &catalogProviderStub{descriptor: descriptor}, code: apperror.CodeInvalidArgument},
+		{name: "provider unavailable", format: "csv", query: `{}`, columns: `["id"]`, provider: &catalogProviderStub{err: errors.New("offline")}, code: apperror.CodeDependencyUnavailable},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			service := &Service{applications: allowAllApplications{}, catalog: test.provider, now: time.Now}
-			_, _, err := service.Create(userContext("tenant-1"), CreateInput{TenantID: "tenant-1", ApplicationID: "application-1", DatasetCode: "billing.invoices", ProviderService: "billing-service", Format: test.format, QueryJSON: `{}`, SelectedColumnsJSON: test.columns, IdempotencyKey: "key"})
+			_, _, err := service.Create(userContext("tenant-1"), CreateInput{TenantID: "tenant-1", ApplicationID: "application-1", DatasetCode: "billing.invoices", ProviderService: "billing-service", Format: test.format, QueryJSON: test.query, SelectedColumnsJSON: test.columns, IdempotencyKey: "key"})
 			var appErr *apperror.Error
 			if !errors.As(err, &appErr) || appErr.Code != test.code {
 				t.Fatalf("error = %#v", err)
 			}
 		})
+	}
+}
+
+func TestValidateQueryUsesProviderSchema(t *testing.T) {
+	t.Parallel()
+	fields := []QueryField{
+		{Key: "status", Type: "string", Options: []string{"paid"}, Required: true},
+		{Key: "created_from", Type: "datetime"},
+		{Key: "include_void", Type: "boolean"},
+		{Key: "minimum_total", Type: "integer"},
+	}
+	if err := validateQuery(`{"status":"paid","created_from":"2026-09-02T00:00:00+08:00","include_void":false,"minimum_total":100}`, fields); err != nil {
+		t.Fatalf("valid query rejected: %v", err)
+	}
+	if err := validateQuery(`{"include_void":false}`, fields); err == nil {
+		t.Fatal("missing required field accepted")
 	}
 }
 

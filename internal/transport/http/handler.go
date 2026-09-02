@@ -128,13 +128,23 @@ type ExportColumnBody struct {
 	Format    string `json:"format"`
 	Sensitive bool   `json:"sensitive"`
 }
+type ExportQueryFieldBody struct {
+	Key         string   `json:"key"`
+	Title       string   `json:"title"`
+	Type        string   `json:"type"`
+	Format      string   `json:"format"`
+	Description string   `json:"description"`
+	Options     []string `json:"options"`
+	Required    bool     `json:"required"`
+}
 type ExportDatasetDescriptorBody struct {
-	Code             string             `json:"code"`
-	Title            string             `json:"title"`
-	Columns          []ExportColumnBody `json:"columns"`
-	Formats          []string           `json:"formats"`
-	EstimatedRows    int64              `json:"estimated_rows"`
-	SupportsSnapshot bool               `json:"supports_snapshot"`
+	Code             string                 `json:"code"`
+	Title            string                 `json:"title"`
+	Columns          []ExportColumnBody     `json:"columns"`
+	QueryFields      []ExportQueryFieldBody `json:"query_fields"`
+	Formats          []string               `json:"formats"`
+	EstimatedRows    int64                  `json:"estimated_rows"`
+	SupportsSnapshot bool                   `json:"supports_snapshot"`
 }
 
 // ListExportDatasets godoc
@@ -188,7 +198,11 @@ func (h *Handler) DescribeExportDataset(c *gin.Context) {
 	for i, column := range value.Columns {
 		columns[i] = ExportColumnBody{Key: column.Key, Title: column.Title, Type: column.Type, Format: column.Format, Sensitive: column.Sensitive}
 	}
-	OK(c, ExportDatasetDescriptorBody{Code: value.Code, Title: value.Title, Columns: columns, Formats: value.Formats, EstimatedRows: value.EstimatedRows, SupportsSnapshot: value.SupportsSnapshot})
+	queryFields := make([]ExportQueryFieldBody, len(value.QueryFields))
+	for i, field := range value.QueryFields {
+		queryFields[i] = ExportQueryFieldBody{Key: field.Key, Title: field.Title, Type: field.Type, Format: field.Format, Description: field.Description, Options: field.Options, Required: field.Required}
+	}
+	OK(c, ExportDatasetDescriptorBody{Code: value.Code, Title: value.Title, Columns: columns, QueryFields: queryFields, Formats: value.Formats, EstimatedRows: value.EstimatedRows, SupportsSnapshot: value.SupportsSnapshot})
 }
 
 type GetExportRequest struct {

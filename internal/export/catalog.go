@@ -19,12 +19,13 @@ type DatasetSummary struct {
 }
 
 type DatasetDescriptor struct {
-	Code             string   `json:"code"`
-	Title            string   `json:"title"`
-	Columns          []Column `json:"columns"`
-	Formats          []string `json:"formats"`
-	EstimatedRows    int64    `json:"estimated_rows"`
-	SupportsSnapshot bool     `json:"supports_snapshot"`
+	Code             string       `json:"code"`
+	Title            string       `json:"title"`
+	Columns          []Column     `json:"columns"`
+	QueryFields      []QueryField `json:"query_fields"`
+	Formats          []string     `json:"formats"`
+	EstimatedRows    int64        `json:"estimated_rows"`
+	SupportsSnapshot bool         `json:"supports_snapshot"`
 }
 
 type CatalogProvider interface {

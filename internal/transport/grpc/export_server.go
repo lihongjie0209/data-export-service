@@ -39,7 +39,11 @@ func (s *exportServer) DescribeAvailableExportDataset(ctx context.Context, r *ex
 	for i, column := range value.Columns {
 		columns[i] = &exportv1.ExportColumn{Key: column.Key, Title: column.Title, Type: column.Type, Format: column.Format, Sensitive: column.Sensitive}
 	}
-	return &exportv1.DescribeAvailableExportDatasetResponse{Dataset: &exportv1.DatasetDescriptor{Code: value.Code, Title: value.Title, Columns: columns, Formats: value.Formats, EstimatedRows: value.EstimatedRows, SupportsSnapshot: value.SupportsSnapshot}}, exportError(err)
+	queryFields := make([]*exportv1.ExportQueryField, len(value.QueryFields))
+	for i, field := range value.QueryFields {
+		queryFields[i] = &exportv1.ExportQueryField{Key: field.Key, Title: field.Title, Type: field.Type, Format: field.Format, Description: field.Description, Options: field.Options, Required: field.Required}
+	}
+	return &exportv1.DescribeAvailableExportDatasetResponse{Dataset: &exportv1.DatasetDescriptor{Code: value.Code, Title: value.Title, Columns: columns, QueryFields: queryFields, Formats: value.Formats, EstimatedRows: value.EstimatedRows, SupportsSnapshot: value.SupportsSnapshot}}, exportError(err)
 }
 
 func (s *exportServer) CreateExportJob(ctx context.Context, r *exportv1.CreateExportJobRequest) (*exportv1.CreateExportJobResponse, error) {
